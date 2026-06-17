@@ -1,0 +1,25 @@
+{
+  "name": "stuntcock",
+  "version": "1.0.0",
+  "description": "StuntCock — Your messages. Handled.",
+  "scripts": {
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "backend": "node backend/server.js",
+    "frontend": "cd frontend && npm run dev",
+    "preflight": "node scripts/preflight.js",
+    "seed": "node scripts/seed.js",
+    "install:all": "npm install && cd frontend && npm install"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.0",
+    "better-sqlite3": "^12.11.1",
+    "concurrently": "^8.2.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "ws": "^8.17.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

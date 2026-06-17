@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm -v)",
+      "Bash(npm rebuild *)",
+      "Bash(npm show *)",
+      "Bash(node -e \"require\\('./backend/db'\\); console.log\\('DB OK'\\)\")",
+      "Bash(npm run *)",
+      "Bash(timeout 4 node backend/server.js)",
+      "Bash(node backend/server.js)",
+      "Bash(curl -s http://localhost:3001/api/health)",
+      "Bash(curl -s http://localhost:3001/api/rules)",
+      "Bash(kill %1)",
+      "Bash(python3 -m json.tool)",
+      "Bash(wait %1)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(mkdir -p /Users/mattswann/claude-code/StuntCock/.claude)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(kill 16731)",
+      "Bash(xargs kill -9)",
+      "Bash(node /Users/mattswann/claude-code/StuntCock/backend/server.js)",
+      "Bash(curl -s http://localhost:3001/api/settings)",
+      "Bash(find /Users/mattswann -name \"stuntcocklogo*\" 2>/dev/null | head -5)",
+      "Bash(cp /Users/mattswann/Downloads/stuntcock5.jpg /Users/mattswann/claude-code/StuntCock/frontend/public/stuntcock5.jpg)",
+      "mcp__Claude_in_Chrome__navigate",
+      "mcp__Claude_in_Chrome__computer",
+      "Bash(git init *)",
+      "Bash(git add *)"
+    ]
+  }
+}

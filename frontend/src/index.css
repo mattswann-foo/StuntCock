@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:        #0B1535;
+  --bg2:       #111E47;
+  --bg3:       #172559;
+  --blue:      #3D72E8;
+  --blue-dim:  #2D5ACC;
+  --blue-pale: rgba(61,114,232,0.15);
+  --red:       #E8365D;
+  --red-pale:  rgba(232,54,93,0.15);
+  --white:     #FFFFFF;
+  --muted:     rgba(255,255,255,0.45);
+  --border:    rgba(255,255,255,0.08);
+  --border2:   rgba(61,114,232,0.3);
+}
+
+html, body {
+  height: 100%;
+}
+
+/* #root height is managed per-page:
+   - Landing uses minHeight on its wrapper
+   - Dashboard uses h-screen via Tailwind */
+
+body {
+  background: linear-gradient(135deg, #0B1535 0%, #172255 50%, #0E1C48 100%);
+  background-attachment: fixed;
+  color: var(--white);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(61,114,232,0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--blue); }
+
+/* Slide-in animation for new messages */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slideUp 0.28s cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+
+/* Glow pulse for status dot */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 4px #4ade80; }
+  50%       { box-shadow: 0 0 10px #4ade80; }
+}
+.pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
