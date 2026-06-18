@@ -115,7 +115,12 @@ signalClient.startDaemon(
 
 // Settings
 app.get('/api/settings', (req, res) => {
-  res.json(db.getAllSettings());
+  const settings = db.getAllSettings();
+  // Never expose the raw API key to the frontend; surface a boolean flag instead.
+  const apiKeyConfigured = !!(settings.anthropic_api_key && settings.anthropic_api_key.trim());
+  delete settings.anthropic_api_key;
+  settings.anthropic_api_key_configured = apiKeyConfigured;
+  res.json(settings);
 });
 
 app.post('/api/settings', (req, res) => {
