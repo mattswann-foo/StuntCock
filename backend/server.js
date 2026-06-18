@@ -115,7 +115,10 @@ signalClient.startDaemon(
 
 // Settings
 app.get('/api/settings', (req, res) => {
-  res.json(db.getAllSettings());
+  const settings = db.getAllSettings();
+  delete settings.anthropic_api_key;
+  settings.anthropic_api_key_configured = !!process.env.ANTHROPIC_API_KEY;
+  res.json(settings);
 });
 
 app.post('/api/settings', (req, res) => {
