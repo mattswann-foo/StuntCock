@@ -121,17 +121,17 @@ app.get('/api/settings', (req, res) => {
 app.post('/api/settings', (req, res) => {
   const { key, value } = req.body;
   if (!key) return res.status(400).json({ error: 'key required' });
+  if (key === 'anthropic_api_key') return res.json({ ok: true });
   db.setSetting(key, value);
-  if (key === 'anthropic_api_key') resetClient();
   res.json({ ok: true });
 });
 
 app.post('/api/settings/bulk', (req, res) => {
   const settings = req.body;
   for (const [key, value] of Object.entries(settings)) {
+    if (key === 'anthropic_api_key') continue;
     db.setSetting(key, value);
   }
-  if (settings.anthropic_api_key) resetClient();
   res.json({ ok: true });
 });
 
@@ -216,10 +216,15 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, version: '1.0.0', product: 'StuntCock' });
 });
 
-server.listen(PORT, () => {
-  console.log(`\n🐓 StuntCock backend running on http://localhost:${PORT}`);
-});
+// Only bind to a port when run directly (not when required in tests)
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`\n🐓 StuntCock backend running on http://localhost:${PORT}`);
+  });
 
-// Graceful shutdown
-process.on('SIGTERM', () => { signalClient.stopDaemon(); process.exit(0); });
-process.on('SIGINT', () => { signalClient.stopDaemon(); process.exit(0); });
+  // Graceful shutdown
+  process.on('SIGTERM', () => { signalClient.stopDaemon(); process.exit(0); });
+  process.on('SIGINT', () => { signalClient.stopDaemon(); process.exit(0); });
+}
+
+module.exports = app;
