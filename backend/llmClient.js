@@ -71,4 +71,4 @@ async function generateLLMReply({ sender, body, groupId }) {
   return reply;
 }
 
-module.exports = { generateLLMReply, resetClient };
+module.exports = { generateLLMReply, resetClient, truncateAtSentence };
