@@ -1,6 +1,6 @@
 // StuntCock — Settings panel
 import React, { useEffect, useState } from 'react';
-import { API } from '../lib/utils.js';
+import { API, getAuthHeaders } from '../lib/utils.js';
 
 const TIMEZONES = [
   'America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
@@ -29,18 +29,30 @@ export default function Settings() {
     timezone: 'America/New_York',
   });
   const [showKey, setShowKey] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+  const [apiToken, setApiToken] = useState(() => localStorage.getItem('stuntcock_api_token') || '');
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    fetch(`${API}/api/settings`).then(r => r.json())
+    fetch(`${API}/api/settings`, { headers: { ...getAuthHeaders() } }).then(r => r.json())
       .then(data => setForm(f => ({ ...f, ...data }))).catch(() => {});
   }, []);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  const saveToken = (value) => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      localStorage.setItem('stuntcock_api_token', trimmed);
+    } else {
+      localStorage.removeItem('stuntcock_api_token');
+    }
+    setApiToken(trimmed);
+  };
+
   const save = async (e) => {
     e.preventDefault();
-    await fetch(`${API}/api/settings/bulk`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+    await fetch(`${API}/api/settings/bulk`, { method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
@@ -75,6 +87,30 @@ export default function Settings() {
           </div>
         </Section>
 
+        <Section title="Security" desc="API access token used to authenticate requests to the backend. Configure if you have enabled API_TOKEN in your .env.">
+          <div className="relative">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={apiToken}
+              onChange={e => setApiToken(e.target.value)}
+              onBlur={e => saveToken(e.target.value)}
+              placeholder={apiToken ? '••••••••••••••••' : 'Paste your API token here…'}
+              style={{ ...inputStyle, paddingRight: '72px' }}
+              onFocus={e => e.target.style.borderColor = 'rgba(61,114,232,0.6)'}
+            />
+            <button type="button" onClick={() => setShowToken(v => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs px-2 py-1 rounded-lg transition-colors"
+              style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.06)' }}>
+              {showToken ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {apiToken && (
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
+              Token stored in browser localStorage. Clear the field and click away to remove it.
+            </p>
+          )}
+        </Section>
+
         <Section title="LLM System Prompt" desc="Instructions Claude follows when generating auto-replies.">
           <textarea rows={5} value={form.llm_system_prompt}
             onChange={e => set('llm_system_prompt', e.target.value)}
@@ -106,6 +142,7 @@ export default function Settings() {
             {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz}</option>)}
           </select>
         </Section>
+
 
         <button type="submit"
           className="px-6 py-2.5 rounded-2xl text-white text-sm font-semibold transition-all"

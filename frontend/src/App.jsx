@@ -9,7 +9,7 @@ import Analytics from './components/Analytics.jsx';
 import CrashBanner from './components/CrashBanner.jsx';
 import { ToastProvider, useToast } from './components/Toast.jsx';
 import { useWebSocket } from './hooks/useWebSocket.js';
-import { API } from './lib/utils.js';
+import { API, getAuthHeaders } from './lib/utils.js';
 
 const PAGE_TITLES = {
   feed:      'Message Feed',
@@ -29,9 +29,9 @@ function AppInner() {
 
   useEffect(() => {
     Promise.all([
-      fetch(`${API}/api/settings`).then(r => r.json()).catch(() => ({})),
-      fetch(`${API}/api/signal/status`).then(r => r.json()).catch(() => ({ running: false })),
-      fetch(`${API}/api/analytics`).then(r => r.json()).catch(() => ({})),
+      fetch(`${API}/api/settings`, { headers: { ...getAuthHeaders() } }).then(r => r.json()).catch(() => ({})),
+      fetch(`${API}/api/signal/status`, { headers: { ...getAuthHeaders() } }).then(r => r.json()).catch(() => ({ running: false })),
+      fetch(`${API}/api/analytics`, { headers: { ...getAuthHeaders() } }).then(r => r.json()).catch(() => ({})),
     ]).then(([settings, status, analytics]) => {
       setSetupDone(settings.setup_complete === 'true');
       setSignalStatus(status);
