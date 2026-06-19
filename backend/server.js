@@ -11,6 +11,7 @@ const path = require('path');
 const db = require('./db');
 const { matchMessage, isSelfMessage } = require('./ruleEngine');
 const { generateLLMReply, resetClient } = require('./llmClient');
+const { validateRule } = require('./validators');
 const { fetchGifPath } = require('./gifClient');
 const fs = require('fs');
 const signalClient = require('./signalClient');
@@ -230,11 +231,19 @@ app.get('/api/rules', (req, res) => {
 });
 
 app.post('/api/rules', (req, res) => {
+  const validation = validateRule(req.body);
+  if (!validation.valid) {
+    return res.status(400).json({ error: 'Validation failed', details: validation.errors });
+  }
   const rule = db.createRule(req.body);
   res.json(rule);
 });
 
 app.put('/api/rules/:id', (req, res) => {
+  const validation = validateRule(req.body);
+  if (!validation.valid) {
+    return res.status(400).json({ error: 'Validation failed', details: validation.errors });
+  }
   const rule = db.updateRule(parseInt(req.params.id), req.body);
   if (!rule) return res.status(404).json({ error: 'not found' });
   res.json(rule);
@@ -385,10 +394,14 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, version: '1.0.0', product: 'StuntCock' });
 });
 
-server.listen(PORT, () => {
-  console.log(`\n🐓 StuntCock backend running on http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`\n🐓 StuntCock backend running on http://localhost:${PORT}`);
+  });
+}
 
 // Graceful shutdown
 process.on('SIGTERM', () => { signalClient.stopDaemon(); process.exit(0); });
 process.on('SIGINT', () => { signalClient.stopDaemon(); process.exit(0); });
+
+module.exports = app;
