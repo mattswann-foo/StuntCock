@@ -12,6 +12,7 @@ const db = require('./db');
 const { matchMessage, isSelfMessage } = require('./ruleEngine');
 const { generateLLMReply, resetClient } = require('./llmClient');
 const signalClient = require('./signalClient');
+const { requireAuth } = require('./authMiddleware');
 
 const app = express();
 const server = http.createServer(app);
@@ -113,9 +114,22 @@ signalClient.startDaemon(
 
 // --- REST API ---
 
+// Health — registered before requireAuth so liveness probes always succeed
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, version: '1.0.0', product: 'StuntCock' });
+});
+
+// Apply optional token auth to all remaining /api/* routes
+app.use('/api', requireAuth);
+
 // Settings
 app.get('/api/settings', (req, res) => {
-  res.json(db.getAllSettings());
+  const settings = db.getAllSettings();
+  // Redact stored API key in the response — never expose the real secret over the wire
+  if (Object.prototype.hasOwnProperty.call(settings, 'anthropic_api_key')) {
+    settings.anthropic_api_key = settings.anthropic_api_key ? 'sk-***' : '';
+  }
+  res.json(settings);
 });
 
 app.post('/api/settings', (req, res) => {
@@ -209,11 +223,6 @@ app.post('/api/signal/verify', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
-});
-
-// Health
-app.get('/api/health', (req, res) => {
-  res.json({ ok: true, version: '1.0.0', product: 'StuntCock' });
 });
 
 server.listen(PORT, () => {
