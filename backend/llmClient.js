@@ -3,7 +3,7 @@
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const Anthropic = require('@anthropic-ai/sdk');
-const { getConversationHistory, appendConversation, getSetting } = require('./db');
+const { getConversationHistory, appendConversation, getSetting, getPersona } = require('./db');
 
 let client = null;
 
@@ -41,11 +41,18 @@ function truncateAtSentence(text, maxLen = 500) {
  * @param {string} [opts.groupId] - Signal group ID if applicable
  * @returns {Promise<string>} the reply text (max 500 chars)
  */
-async function generateLLMReply({ sender, body, groupId }) {
-  const systemPrompt = getSetting('llm_system_prompt',
-    'You are a helpful personal assistant replying to Signal messages on behalf of the user. ' +
-    'Keep replies brief, friendly, and natural. Never reveal you are an AI unless directly asked.'
-  );
+async function generateLLMReply({ sender, body, groupId, systemPromptOverride, personaId }) {
+  let systemPrompt = systemPromptOverride;
+  if (!systemPrompt && personaId) {
+    const persona = getPersona(personaId);
+    if (persona) systemPrompt = persona.system_prompt;
+  }
+  if (!systemPrompt) {
+    systemPrompt = getSetting('llm_system_prompt',
+      'You are a helpful personal assistant replying to Signal messages on behalf of the user. ' +
+      'Keep replies brief, friendly, and natural. Never reveal you are an AI unless directly asked.'
+    );
+  }
 
   const threadId = groupId || sender;
   const history = getConversationHistory(threadId, 10);

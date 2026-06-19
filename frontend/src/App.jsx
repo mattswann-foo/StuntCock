@@ -6,6 +6,7 @@ import MessageFeed from './components/MessageFeed.jsx';
 import RulesEditor from './components/RulesEditor.jsx';
 import Settings from './components/Settings.jsx';
 import Analytics from './components/Analytics.jsx';
+import Personas from './components/Personas.jsx';
 import CrashBanner from './components/CrashBanner.jsx';
 import { ToastProvider, useToast } from './components/Toast.jsx';
 import { useWebSocket } from './hooks/useWebSocket.js';
@@ -14,6 +15,7 @@ import { API } from './lib/utils.js';
 const PAGE_TITLES = {
   feed:      'Message Feed',
   rules:     'Rules',
+  personas:  'Personas',
   analytics: 'Analytics',
   settings:  'Settings',
 };
@@ -22,6 +24,7 @@ function AppInner() {
   const [page, setPage] = useState('feed');
   const [setupDone, setSetupDone] = useState(null);
   const [signalStatus, setSignalStatus] = useState({ running: false });
+  const [whatsappStatus, setWhatsappStatus] = useState({ running: false, authenticated: false });
   const [stats, setStats] = useState({});
   const [crashMessage, setCrashMessage] = useState('');
   const [liveMessages, setLiveMessages] = useState([]);
@@ -31,10 +34,12 @@ function AppInner() {
     Promise.all([
       fetch(`${API}/api/settings`).then(r => r.json()).catch(() => ({})),
       fetch(`${API}/api/signal/status`).then(r => r.json()).catch(() => ({ running: false })),
+      fetch(`${API}/api/whatsapp/status`).then(r => r.json()).catch(() => ({ running: false })),
       fetch(`${API}/api/analytics`).then(r => r.json()).catch(() => ({})),
-    ]).then(([settings, status, analytics]) => {
+    ]).then(([settings, signalSt, waSt, analytics]) => {
       setSetupDone(settings.setup_complete === 'true');
-      setSignalStatus(status);
+      setSignalStatus(signalSt);
+      setWhatsappStatus(waSt);
       setStats({
         total: analytics.today?.total ?? 0,
         replied: analytics.today?.replied ?? 0,
@@ -55,6 +60,8 @@ function AppInner() {
       setSignalStatus(s => ({ ...s, ...data }));
     } else if (event === 'signal_crashed') {
       setCrashMessage('StuntCock lost its Signal connection. Reconnecting…');
+    } else if (event === 'whatsapp_status') {
+      setWhatsappStatus(s => ({ ...s, ...data }));
     } else if (event === 'error') {
       toast(data.message, 'error');
     }
@@ -66,7 +73,7 @@ function AppInner() {
         background: 'linear-gradient(135deg, #0B1535 0%, #172255 60%, #0E1C48 100%)',
       }}>
         <div className="flex items-center gap-3">
-          <img src="/stuntcock5.jpg" alt="" className="w-8 h-8 opacity-50" style={{ objectFit: 'cover', borderRadius: '22%' }} />
+          <img src="/sc_bubble.jpg" alt="" className="w-8 h-8 opacity-50" style={{ objectFit: 'cover', borderRadius: '22%' }} />
           <span className="text-sm" style={{ color: 'rgba(255,255,255,0.3)' }}>Loading StuntCock…</span>
         </div>
       </div>
@@ -81,7 +88,7 @@ function AppInner() {
     <div className="flex h-screen overflow-hidden" style={{
       background: 'linear-gradient(135deg, #0B1535 0%, #172255 50%, #0E1C48 100%)',
     }}>
-      <Sidebar page={page} setPage={setPage} signalStatus={signalStatus} stats={stats} />
+      <Sidebar page={page} setPage={setPage} signalStatus={signalStatus} whatsappStatus={whatsappStatus} stats={stats} />
 
       <main className="flex-1 flex flex-col min-w-0">
         {crashMessage && <CrashBanner message={crashMessage} onDismiss={() => setCrashMessage('')} />}
@@ -97,6 +104,7 @@ function AppInner() {
 
         {page === 'feed'      && <MessageFeed liveMessages={liveMessages} />}
         {page === 'rules'     && <RulesEditor />}
+        {page === 'personas'  && <Personas />}
         {page === 'analytics' && <Analytics />}
         {page === 'settings'  && <Settings />}
       </main>

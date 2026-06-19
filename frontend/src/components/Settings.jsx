@@ -1,6 +1,7 @@
 // StuntCock — Settings panel
 import React, { useEffect, useState } from 'react';
 import { API } from '../lib/utils.js';
+import { useWebSocket } from '../hooks/useWebSocket.js';
 
 const TIMEZONES = [
   'America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
@@ -25,16 +26,37 @@ export default function Settings() {
     anthropic_api_key: '',
     llm_system_prompt: '',
     llm_enabled: 'true',
+    gif_enabled: 'false',
+    gif_frequency: '0.3',
+    giphy_api_key: '',
     global_cooldown_minutes: '0',
     timezone: 'America/New_York',
+    whatsapp_enabled: 'false',
   });
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [waStatus, setWaStatus] = useState({ running: false, authenticated: false, qrDataUrl: null });
+  const [signalStatus, setSignalStatus] = useState({ running: false, enabled: true });
 
   useEffect(() => {
     fetch(`${API}/api/settings`).then(r => r.json())
       .then(data => setForm(f => ({ ...f, ...data }))).catch(() => {});
+    fetch(`${API}/api/whatsapp/status`).then(r => r.json())
+      .then(setWaStatus).catch(() => {});
+    fetch(`${API}/api/signal/status`).then(r => r.json())
+      .then(setSignalStatus).catch(() => {});
   }, []);
+
+  useWebSocket((event, data) => {
+    if (event === 'whatsapp_status') setWaStatus(s => ({ ...s, ...data }));
+    if (event === 'whatsapp_qr') setWaStatus(s => ({ ...s, qrDataUrl: data.qrDataUrl, authenticated: false }));
+    if (event === 'signal_status') setSignalStatus(s => ({ ...s, ...data }));
+  });
+
+  const toggleSignal = async (enable) => {
+    await fetch(`${API}/api/signal/${enable ? 'enable' : 'disable'}`, { method: 'POST' });
+    setSignalStatus(s => ({ ...s, enabled: enable }));
+  };
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -83,6 +105,85 @@ export default function Settings() {
             onFocus={e => e.target.style.borderColor = 'rgba(61,114,232,0.6)'}
             onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
           />
+        </Section>
+
+        <Section title="Signal" desc="Toggle Signal message handling on or off. Disabling stops signal-cli and pauses all Signal auto-replies.">
+          <label className="flex items-center justify-between cursor-pointer">
+            <span className="text-sm text-white/70">Enable Signal</span>
+            <Toggle checked={signalStatus.enabled} onChange={toggleSignal} />
+          </label>
+          <div className="flex items-center gap-2 pt-1">
+            <span className={`w-2 h-2 rounded-full ${signalStatus.running ? 'bg-green-400' : 'bg-zinc-600'}`} />
+            <span className="text-xs" style={{ color: 'rgba(255,255,255,0.45)' }}>
+              {signalStatus.running ? 'signal-cli running' : signalStatus.enabled ? 'Starting…' : 'Disabled'}
+            </span>
+          </div>
+        </Section>
+
+        <Section title="WhatsApp" desc="Connect a WhatsApp number via QR code scan. Rules and LLM fallback apply to both platforms.">
+          <label className="flex items-center justify-between cursor-pointer">
+            <span className="text-sm text-white/70">Enable WhatsApp</span>
+            <Toggle checked={form.whatsapp_enabled === 'true'} onChange={v => set('whatsapp_enabled', v ? 'true' : 'false')} />
+          </label>
+          {form.whatsapp_enabled === 'true' && (
+            <div className="space-y-3 pt-1">
+              {waStatus.authenticated || waStatus.running ? (
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-green-400" />
+                  <span className="text-sm" style={{ color: 'rgba(255,255,255,0.6)' }}>WhatsApp connected</span>
+                </div>
+              ) : waStatus.qrDataUrl ? (
+                <div className="space-y-2">
+                  <p className="text-xs" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                    Scan this QR code with WhatsApp on your phone (Linked Devices → Link a Device).
+                  </p>
+                  <img src={waStatus.qrDataUrl} alt="WhatsApp QR"
+                    className="rounded-xl"
+                    style={{ width: 200, height: 200, background: 'white', padding: 8 }} />
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                  <span className="text-sm" style={{ color: 'rgba(255,255,255,0.5)' }}>Starting WhatsApp… QR code will appear here</span>
+                </div>
+              )}
+            </div>
+          )}
+        </Section>
+
+        <Section title="GIF Replies" desc="Occasionally reply with just a GIF instead of a text response — like a real person would.">
+          <label className="flex items-center justify-between cursor-pointer">
+            <span className="text-sm text-white/70">Enable GIF replies</span>
+            <Toggle checked={form.gif_enabled === 'true'} onChange={v => set('gif_enabled', v ? 'true' : 'false')} />
+          </label>
+          {form.gif_enabled === 'true' && (<>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-white/70">Frequency</span>
+                <span className="text-sm font-semibold" style={{ color: '#3D72E8' }}>
+                  {Math.round(parseFloat(form.gif_frequency || 0.3) * 100)}%
+                </span>
+              </div>
+              <input
+                type="range" min="0.05" max="0.75" step="0.05"
+                value={form.gif_frequency || '0.3'}
+                onChange={e => set('gif_frequency', e.target.value)}
+                style={{ width: '100%', accentColor: '#3D72E8' }}
+              />
+              <div className="flex justify-between text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                <span>Rarely</span><span>Sometimes</span><span>Often</span>
+              </div>
+            </div>
+            <input
+              type="text"
+              value={form.giphy_api_key}
+              onChange={e => set('giphy_api_key', e.target.value)}
+              placeholder="Giphy API key (free at giphy.com/developer)"
+              style={inputStyle}
+              onFocus={e => e.target.style.borderColor = 'rgba(61,114,232,0.6)'}
+              onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+            />
+          </>)}
         </Section>
 
         <Section title="Global Default Cooldown" desc="Applied to rules that don't have their own cooldown set.">

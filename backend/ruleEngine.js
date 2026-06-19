@@ -53,18 +53,36 @@ function matchesTrigger(rule, messageBody) {
  * Evaluates the sender filter on the rule.
  * sender_filter is one of: 'all', a phone number, a group ID prefixed 'group:', or 'unknown'
  */
+function matchesPlatform(rule, platform) {
+  const filter = rule.platform_filter ?? 'any';
+  if (filter === 'any') return true;
+  return filter === (platform ?? 'signal');
+}
+
+function normalizePhone(s) {
+  // Strip everything except digits, then strip leading country-code prefix variants
+  return (s || '').replace(/\D/g, '');
+}
+
 function matchesSender(rule, sender, groupId) {
   const filter = rule.sender_filter ?? 'all';
-  if (filter === 'all') return true;
-  if (filter === 'unknown') {
-    // Heuristic: "unknown" = sender not in our contacts. We can't know contacts here,
-    // so treat as any number that doesn't look like a named contact — always match for now.
-    return true;
-  }
+  if (!filter || filter === 'all') return true;
+  if (filter === 'unknown') return true;
   if (filter.startsWith('group:')) {
-    return groupId && groupId === filter.slice(6);
+    return !!(groupId && groupId === filter.slice(6));
   }
-  return sender === filter;
+  // Exact match first (handles full JIDs and +E.164 numbers)
+  if (sender === filter) return true;
+  // Phone number fuzzy match: strip non-digits and compare tails
+  // Handles +12065551234 vs 12065551234 vs 2065551234 etc.
+  const senderDigits = normalizePhone(sender);
+  const filterDigits = normalizePhone(filter);
+  if (filterDigits.length >= 7 && senderDigits.length >= 7) {
+    // Compare by longest common suffix (last 10 digits)
+    const tail = Math.min(10, filterDigits.length, senderDigits.length);
+    return senderDigits.slice(-tail) === filterDigits.slice(-tail);
+  }
+  return false;
 }
 
 /**
@@ -96,7 +114,7 @@ function renderTemplate(text, context) {
  * @returns {{ rule, response } | null}
  */
 function matchMessage(message) {
-  const { sender, groupId, body } = message;
+  const { sender, groupId, body, platform } = message;
 
   if (isSelfMessage(sender)) return null;
 
@@ -104,6 +122,7 @@ function matchMessage(message) {
   const rules = getRules().filter(r => r.active);
 
   for (const rule of rules) {
+    if (!matchesPlatform(rule, platform)) continue;
     if (!matchesTrigger(rule, body)) continue;
     if (!matchesSender(rule, sender, groupId)) continue;
     if (!isScheduleActive(rule, timezone)) continue;

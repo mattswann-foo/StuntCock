@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "StuntCock",
+    "slug": "stuntcock",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "usesCleartextTraffic": true,
+      "package": "com.mattswann.stuntcock",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "stuntcock",
+    "plugins": [
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-apple-authentication"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "741111f1-7b8e-4ad0-a8fc-7037c9e1afaa"
+      }
+    },
+    "owner": "mswann"
+  }
+}

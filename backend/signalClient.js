@@ -1,6 +1,7 @@
 // StuntCock — signal-cli process manager and JSON-RPC interface
-// Spawns signal-cli in daemon mode, polls for new messages, sends replies.
-// Auto-restarts on crash (up to 3 attempts before surfacing error).
+// Spawns signal-cli in daemon mode. Incoming messages are read from stdout
+// (signal-cli --output json streams each envelope as a JSON line).
+// Outgoing messages use the HTTP JSON-RPC endpoint.
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const { spawn } = require('child_process');
@@ -25,7 +26,7 @@ function getPhoneNumber() {
   return process.env.SIGNAL_PHONE_NUMBER || getSetting('phone_number') || '';
 }
 
-// --- JSON-RPC helpers ---
+// --- HTTP JSON-RPC (send only) ---
 
 function rpcRequest(method, params = {}) {
   return new Promise((resolve, reject) => {
@@ -67,11 +68,12 @@ function spawnDaemon() {
   const cliPath = getSignalCliPath();
   const phone = getPhoneNumber();
 
+  // --output json causes signal-cli to stream each received envelope as a
+  // JSON line to stdout — we parse those directly instead of polling via RPC.
   const args = [
     '--output', 'json',
     'daemon',
-    '--http',
-    '--http-port', String(SIGNAL_CLI_PORT),
+    `--http`, `localhost:${SIGNAL_CLI_PORT}`,
   ];
   if (phone) args.unshift('-u', phone);
 
@@ -82,19 +84,34 @@ function spawnDaemon() {
     env: { ...process.env },
   });
 
-  daemonProcess.stdout.on('data', d => {
-    const line = d.toString().trim();
-    if (line) console.log('[signal-cli]', line);
-    if (line.includes('Listening on') || line.includes('Started')) {
-      isRunning = true;
-      restartCount = 0;
-      onReadyCallback?.();
-      startPolling();
+  // stdout: JSON envelope lines from signal-cli
+  let stdoutBuf = '';
+  daemonProcess.stdout.on('data', (chunk) => {
+    stdoutBuf += chunk.toString();
+    const lines = stdoutBuf.split('\n');
+    stdoutBuf = lines.pop(); // keep incomplete line in buffer
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed = JSON.parse(trimmed);
+        handleEnvelope(parsed);
+      } catch (_) {
+        // not JSON (e.g. startup banner) — ignore
+      }
     }
   });
 
-  daemonProcess.stderr.on('data', d => {
-    console.error('[signal-cli stderr]', d.toString().trim());
+  // stderr: startup logs
+  daemonProcess.stderr.on('data', (d) => {
+    const line = d.toString().trim();
+    if (!line) return;
+    console.log('[signal-cli]', line);
+    if (!isRunning && line.includes('Started HTTP server')) {
+      isRunning = true;
+      restartCount = 0;
+      onReadyCallback?.();
+    }
   });
 
   let spawnFailed = false;
@@ -102,9 +119,8 @@ function spawnDaemon() {
     isRunning = false;
     spawnFailed = true;
     if (err.code === 'ENOENT') {
-      console.error(`[StuntCock] signal-cli binary not found at: ${getSignalCliPath()}`);
-      console.error('[StuntCock] Set SIGNAL_CLI_PATH in your .env file. See README for install instructions.');
-      onCrashCallback?.('signal-cli binary not found. Check SIGNAL_CLI_PATH in your .env file. See the README for installation instructions.');
+      console.error(`[StuntCock] signal-cli binary not found at: ${cliPath}`);
+      onCrashCallback?.('signal-cli binary not found. Check SIGNAL_CLI_PATH in your .env file.');
     } else {
       console.error('[StuntCock] signal-cli spawn error:', err.message);
     }
@@ -112,7 +128,7 @@ function spawnDaemon() {
 
   daemonProcess.on('exit', (code) => {
     isRunning = false;
-    if (spawnFailed) return; // ENOENT already handled above — don't retry
+    if (spawnFailed) return;
     console.error(`[StuntCock] signal-cli exited with code ${code}`);
     if (restartCount < MAX_RESTARTS) {
       restartCount++;
@@ -120,19 +136,42 @@ function spawnDaemon() {
       setTimeout(spawnDaemon, 3000);
     } else {
       console.error('[StuntCock] signal-cli failed to restart after max attempts');
-      onCrashCallback?.('signal-cli crashed and could not be restarted. Please check your installation.');
+      onCrashCallback?.('signal-cli crashed and could not be restarted.');
     }
   });
 
-  // Give daemon 8 seconds to announce readiness; assume ready if it hasn't exited
+  // Fallback: if HTTP server started but we missed the log line
   setTimeout(() => {
     if (daemonProcess && !daemonProcess.killed && !isRunning) {
       isRunning = true;
       restartCount = 0;
       onReadyCallback?.();
-      startPolling();
     }
   }, 8000);
+}
+
+function handleEnvelope(parsed) {
+  const env = parsed?.envelope;
+  if (!env) return;
+
+  if (!env.dataMessage) return;               // skip receipts, sync, typing, etc.
+  const body = env.dataMessage?.message || '';
+  if (!body) return;                          // skip attachment-only messages
+
+  const msg = {
+    platform:   'signal',
+    sender:     env.source || env.sourceNumber || '',
+    senderName: env.sourceName || '',
+    groupId:    env.dataMessage?.groupInfo?.groupId || null,
+    body,
+    timestamp:  env.timestamp || Date.now(),
+  };
+
+  console.log(`[StuntCock] message from ${msg.sender}: ${msg.body}`);
+
+  for (const handler of messageHandlers) {
+    handler(msg).catch(e => console.error('[StuntCock] message handler error', e));
+  }
 }
 
 function stopDaemon() {
@@ -143,74 +182,28 @@ function stopDaemon() {
   isRunning = false;
 }
 
-// --- Message polling ---
-
-let lastTimestamp = 0;
-let pollInterval = null;
-
-function startPolling() {
-  if (pollInterval) clearInterval(pollInterval);
-  pollInterval = setInterval(pollMessages, 2000);
-}
-
-async function pollMessages() {
-  const phone = getPhoneNumber();
-  if (!phone || !isRunning) return;
-
-  try {
-    // signal-cli JSON-RPC: receive messages
-    const result = await rpcRequest('receive', { account: phone });
-    const envelopes = Array.isArray(result) ? result : (result?.envelopes ?? []);
-
-    for (const envelope of envelopes) {
-      const env = envelope.envelope ?? envelope;
-      // Only process DataMessage envelopes
-      if (!env.dataMessage) continue;
-      // Filter out older messages already handled
-      const ts = env.timestamp || 0;
-      if (ts <= lastTimestamp) continue;
-      lastTimestamp = ts;
-
-      const msg = {
-        sender: env.source || env.sourceNumber || '',
-        senderName: env.sourceName || '',
-        groupId: env.dataMessage?.groupInfo?.groupId || null,
-        body: env.dataMessage?.message || '',
-        timestamp: ts,
-      };
-
-      if (!msg.body) continue;
-
-      for (const handler of messageHandlers) {
-        try { await handler(msg); } catch (e) { console.error('[StuntCock] message handler error', e); }
-      }
-    }
-  } catch (e) {
-    // Swallow poll errors — daemon may be starting up
-  }
-}
-
-function onMessage(handler) {
-  messageHandlers.push(handler);
-}
-
 // --- Send ---
 
 async function sendMessage(recipient, message, groupId) {
   const phone = getPhoneNumber();
   if (!phone) throw new Error('No phone number configured');
-
-  const params = { account: phone, message };
-  if (groupId) {
-    params.groupId = groupId;
-  } else {
-    params.recipient = [recipient];
-  }
-
+  const params = { account: phone };
+  if (message) params.message = message;
+  if (groupId) params.groupId = groupId;
+  else params.recipient = [recipient];
   return rpcRequest('send', params);
 }
 
-// --- Registration flow ---
+async function sendAttachment(recipient, filePath, groupId) {
+  const phone = getPhoneNumber();
+  if (!phone) throw new Error('No phone number configured');
+  const params = { account: phone, attachments: [filePath] };
+  if (groupId) params.groupId = groupId;
+  else params.recipient = [recipient];
+  return rpcRequest('send', params);
+}
+
+// --- Registration ---
 
 async function register(phoneNumber, captcha) {
   const params = { account: phoneNumber };
@@ -226,7 +219,12 @@ function getStatus() {
   return { running: isRunning, restartCount, port: SIGNAL_CLI_PORT };
 }
 
+// onMessage: no handler needed — messages arrive via stdout stream
+function onMessage(handler) {
+  messageHandlers.push(handler);
+}
+
 module.exports = {
-  startDaemon, stopDaemon, onMessage, sendMessage,
+  startDaemon, stopDaemon, onMessage, sendMessage, sendAttachment,
   register, verifyCode, getStatus, rpcRequest,
 };

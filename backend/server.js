@@ -11,7 +11,10 @@ const path = require('path');
 const db = require('./db');
 const { matchMessage, isSelfMessage } = require('./ruleEngine');
 const { generateLLMReply, resetClient } = require('./llmClient');
+const { fetchGifPath } = require('./gifClient');
+const fs = require('fs');
 const signalClient = require('./signalClient');
+const whatsappClient = require('./whatsappClient');
 
 const app = express();
 const server = http.createServer(app);
@@ -20,7 +23,7 @@ const wss = new WebSocket.Server({ server });
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
 app.use(express.json());
-app.use(require('cors')({ origin: 'http://localhost:5173' }));
+app.use(require('cors')({ origin: /^http:\/\/localhost:\d+$/ }));
 
 // --- WebSocket broadcast ---
 
@@ -35,9 +38,27 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ event: 'connected', data: { status: signalClient.getStatus() } }));
 });
 
-// --- Incoming message handler ---
+// --- Platform send helpers ---
 
-signalClient.onMessage(async (msg) => {
+async function platformSendMessage(msg, text) {
+  if (msg.platform === 'whatsapp') {
+    await whatsappClient.sendMessage(msg.waJid || msg.sender, text);
+  } else {
+    await signalClient.sendMessage(msg.sender, text, msg.groupId);
+  }
+}
+
+async function platformSendAttachment(msg, filePath) {
+  if (msg.platform === 'whatsapp') {
+    await whatsappClient.sendAttachment(msg.waJid || msg.sender, filePath);
+  } else {
+    await signalClient.sendAttachment(msg.sender, filePath, msg.groupId);
+  }
+}
+
+// --- Shared inbound message handler (used by both Signal and WhatsApp) ---
+
+async function handleInbound(msg) {
   if (isSelfMessage(msg.sender)) return;
 
   const llmEnabled = db.getSetting('llm_enabled', 'true') === 'true';
@@ -47,12 +68,41 @@ signalClient.onMessage(async (msg) => {
 
   const result = matchMessage(msg);
 
-  if (result) {
+  const globalGifEnabled = db.getSetting('gif_enabled', 'false') === 'true';
+  const globalGifFrequency = parseFloat(db.getSetting('gif_frequency', '0.3'));
+
+  // Per-rule overrides (null means "use global")
+  const rule = result?.rule ?? null;
+  const ruleGifOverride = rule?.rule_gif_enabled;
+  const gifEnabled = (ruleGifOverride && ruleGifOverride !== '') ? ruleGifOverride === 'true' : globalGifEnabled;
+  const gifFrequency = (rule?.rule_gif_frequency && rule.rule_gif_frequency !== '') ? parseFloat(rule.rule_gif_frequency) : globalGifFrequency;
+
+  // Roll for GIF on any LLM-bound response (rule-matched or fallback)
+  const wouldUseLLM = result ? result.rule.response_type === 'llm' && llmEnabled : llmEnabled;
+  const rollGif = gifEnabled && wouldUseLLM && Math.random() < gifFrequency;
+
+  if (rollGif) {
+    let gifPath = null;
+    try {
+      gifPath = await fetchGifPath(msg.body, '').catch(() => null);
+      if (gifPath) {
+        await platformSendAttachment(msg, gifPath);
+        response = '[GIF]';
+        responseType = 'static';
+        matchedRule = rule;
+        console.log('[StuntCock] GIF-only reply:', gifPath);
+      }
+    } catch (e) {
+      console.error('[StuntCock] GIF send error', e.message);
+    } finally {
+      if (gifPath) fs.unlink(gifPath, () => {});
+    }
+  } else if (result) {
     matchedRule = result.rule;
     if (result.rule.response_type === 'llm') {
       if (llmEnabled) {
         try {
-          response = await generateLLMReply(msg);
+          response = await generateLLMReply({ ...msg, systemPromptOverride: result.rule.rule_llm_prompt || null, personaId: result.rule.persona_id || null });
           responseType = 'llm';
         } catch (e) {
           console.error('[StuntCock] LLM error', e.message);
@@ -63,18 +113,11 @@ signalClient.onMessage(async (msg) => {
       response = result.response;
       responseType = result.rule.response_type;
     }
-  } else if (llmEnabled) {
-    try {
-      response = await generateLLMReply(msg);
-      responseType = 'llm';
-    } catch (e) {
-      console.error('[StuntCock] LLM fallback error', e.message);
-    }
   }
 
-  if (response) {
+  if (response && response !== '[GIF]') {
     try {
-      await signalClient.sendMessage(msg.sender, response, msg.groupId);
+      await platformSendMessage(msg, response);
     } catch (e) {
       console.error('[StuntCock] Send error', e.message);
       broadcast('error', { message: `Failed to send reply: ${e.message}` });
@@ -82,7 +125,9 @@ signalClient.onMessage(async (msg) => {
   }
 
   const logEntry = {
+    platform: msg.platform ?? 'signal',
     sender: msg.sender,
+    sender_name: msg.senderName ?? null,
     group_id: msg.groupId,
     message_body: msg.body,
     matched_rule_id: matchedRule?.id ?? null,
@@ -96,18 +141,45 @@ signalClient.onMessage(async (msg) => {
     rule_name: matchedRule?.name ?? null,
     timestamp: new Date().toISOString(),
   });
-});
+}
 
-// --- Signal daemon events ---
+// --- Register handlers ---
 
-signalClient.startDaemon(
-  () => {
-    console.log('[StuntCock] signal-cli ready');
-    broadcast('signal_status', { running: true });
+signalClient.onMessage(handleInbound);
+whatsappClient.onMessage(handleInbound);
+
+// --- Signal daemon ---
+
+function startSignalDaemon() {
+  signalClient.startDaemon(
+    () => {
+      console.log('[StuntCock] signal-cli ready');
+      broadcast('signal_status', { running: true });
+    },
+    (errMsg) => {
+      console.error('[StuntCock] signal-cli crashed:', errMsg);
+      broadcast('signal_crashed', { message: errMsg });
+    }
+  );
+}
+
+if (db.getSetting('signal_enabled', 'true') !== 'false') {
+  startSignalDaemon();
+}
+
+// --- WhatsApp daemon ---
+
+whatsappClient.initialize(
+  ({ qr } = {}) => {
+    if (qr) {
+      broadcast('whatsapp_qr', { qrDataUrl: whatsappClient.getStatus().qrDataUrl });
+    } else {
+      broadcast('whatsapp_status', { running: true, authenticated: true });
+    }
   },
   (errMsg) => {
-    console.error('[StuntCock] signal-cli crashed:', errMsg);
-    broadcast('signal_crashed', { message: errMsg });
+    console.error('[StuntCock] WhatsApp error:', errMsg);
+    broadcast('whatsapp_status', { running: false, authenticated: false, error: errMsg });
   }
 );
 
@@ -128,14 +200,31 @@ app.post('/api/settings', (req, res) => {
 
 app.post('/api/settings/bulk', (req, res) => {
   const settings = req.body;
+  const prevWa = db.getSetting('whatsapp_enabled', 'false');
   for (const [key, value] of Object.entries(settings)) {
     db.setSetting(key, value);
   }
   if (settings.anthropic_api_key) resetClient();
+  if (settings.whatsapp_enabled !== undefined && settings.whatsapp_enabled !== prevWa) {
+    whatsappClient.reinitialize();
+    broadcast('whatsapp_status', whatsappClient.getStatus());
+  }
   res.json({ ok: true });
 });
 
 // Rules
+app.get('/api/contacts', (req, res) => {
+  res.json(db.getContacts());
+});
+
+app.put('/api/contacts/:sender/name', (req, res) => {
+  const { sender } = req.params;
+  const { name } = req.body;
+  db.db.prepare(`UPDATE message_log SET sender_name = ? WHERE sender = ? AND sender_name IS NULL`).run(name, decodeURIComponent(sender));
+  db.db.prepare(`UPDATE message_log SET sender_name = ? WHERE sender = ?`).run(name, decodeURIComponent(sender));
+  res.json({ ok: true });
+});
+
 app.get('/api/rules', (req, res) => {
   res.json(db.getRules());
 });
@@ -181,7 +270,38 @@ app.get('/api/analytics', (req, res) => {
 
 // Signal status
 app.get('/api/signal/status', (req, res) => {
-  res.json(signalClient.getStatus());
+  res.json({ ...signalClient.getStatus(), enabled: db.getSetting('signal_enabled', 'true') !== 'false' });
+});
+
+app.post('/api/signal/enable', (req, res) => {
+  db.setSetting('signal_enabled', 'true');
+  if (!signalClient.getStatus().running) startSignalDaemon();
+  broadcast('signal_status', { ...signalClient.getStatus(), enabled: true });
+  res.json({ ok: true });
+});
+
+app.post('/api/signal/disable', (req, res) => {
+  db.setSetting('signal_enabled', 'false');
+  signalClient.stopDaemon();
+  broadcast('signal_status', { running: false, enabled: false });
+  res.json({ ok: true });
+});
+
+// WhatsApp status + control
+app.get('/api/whatsapp/status', (req, res) => {
+  res.json(whatsappClient.getStatus());
+});
+
+app.post('/api/whatsapp/enable', (req, res) => {
+  db.setSetting('whatsapp_enabled', 'true');
+  whatsappClient.reinitialize();
+  res.json({ ok: true });
+});
+
+app.post('/api/whatsapp/disable', (req, res) => {
+  db.setSetting('whatsapp_enabled', 'false');
+  whatsappClient.shutdown();
+  res.json({ ok: true });
 });
 
 // Signal registration
@@ -206,6 +326,55 @@ app.post('/api/signal/verify', async (req, res) => {
     db.setSetting('setup_complete', 'true');
     broadcast('signal_status', { running: true, registered: true });
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Personas
+app.get('/api/personas', (req, res) => {
+  res.json(db.getPersonas());
+});
+
+app.get('/api/personas/groups', (req, res) => {
+  res.json(db.getPersonaGroups());
+});
+
+app.post('/api/personas', (req, res) => {
+  const { name, emoji, description, system_prompt } = req.body;
+  if (!name || !system_prompt) return res.status(400).json({ error: 'name and system_prompt required' });
+  res.json(db.createPersona({ name, emoji, description, system_prompt }));
+});
+
+app.put('/api/personas/:id', (req, res) => {
+  const p = db.updatePersona(parseInt(req.params.id), req.body);
+  if (!p) return res.status(404).json({ error: 'not found or built-in' });
+  res.json(p);
+});
+
+app.delete('/api/personas/:id', (req, res) => {
+  db.deletePersona(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+// AI-generate a persona system prompt from a name + description
+app.post('/api/personas/generate', async (req, res) => {
+  const { name, description } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  try {
+    const Anthropic = require('@anthropic-ai/sdk');
+    const apiKey = process.env.ANTHROPIC_API_KEY || db.getSetting('anthropic_api_key');
+    if (!apiKey) return res.status(400).json({ error: 'Anthropic API key not set' });
+    const client = new Anthropic({ apiKey });
+    const result = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 400,
+      messages: [{
+        role: 'user',
+        content: `Write a system prompt for an AI that replies to text messages pretending to be someone's "${name}"${description ? ` — ${description}` : ''}. The prompt should define the personality, tone, and relationship dynamic. Keep it under 100 words. End with "Never reveal you are an AI." Output ONLY the system prompt, no explanation.`,
+      }],
+    });
+    res.json({ system_prompt: result.content[0]?.text?.trim() ?? '' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

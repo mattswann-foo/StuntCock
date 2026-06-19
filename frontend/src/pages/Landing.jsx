@@ -1,4 +1,4 @@
-// StuntCock — Marketing landing page, navy/blue palette from stuntcock5.jpg
+// StuntCock — Marketing landing page, navy/blue palette from sc_bubble.jpg
 import React, { useState, useEffect } from 'react';
 
 // ─── Tokens (mirror dashboard palette) ───────────────────────────────────────
@@ -90,7 +90,7 @@ function Nav() {
       transition: 'background 0.3s, border-color 0.3s',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <img src="/stuntcock5.jpg" alt="StuntCock" style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: '22%' }} />
+        <img src="/sc_bubble.jpg" alt="StuntCock" style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: '22%' }} />
         <span style={{ fontWeight: 800, fontSize: 17, color: '#fff', letterSpacing: '-0.3px' }}>StuntCock</span>
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -138,7 +138,7 @@ function Hero() {
             background: 'linear-gradient(135deg, rgba(61,114,232,0.5), rgba(232,54,93,0.3))',
             filter: 'blur(12px)',
           }} />
-          <img src="/stuntcock5.jpg" alt="StuntCock" style={{
+          <img src="/sc_bubble.jpg" alt="StuntCock" style={{
             width: 104, height: 104, objectFit: 'cover', borderRadius: '22%',
             display: 'block', position: 'relative',
             boxShadow: '0 0 0 1px rgba(61,114,232,0.4), 0 24px 56px rgba(0,0,0,0.7)',
@@ -384,7 +384,7 @@ function CTA() {
               background: 'linear-gradient(135deg, rgba(61,114,232,0.4), rgba(232,54,93,0.25))',
               filter: 'blur(8px)',
             }} />
-            <img src="/stuntcock5.jpg" alt="" style={{
+            <img src="/sc_bubble.jpg" alt="" style={{
               width: 72, height: 72, objectFit: 'cover', borderRadius: '22%',
               display: 'block', position: 'relative',
               boxShadow: '0 8px 28px rgba(0,0,0,0.5)',
@@ -414,7 +414,7 @@ function Footer() {
       display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <img src="/stuntcock5.jpg" alt="" style={{ width: 22, height: 22, objectFit: 'cover', borderRadius: '22%', opacity: 0.7 }} />
+        <img src="/sc_bubble.jpg" alt="" style={{ width: 22, height: 22, objectFit: 'cover', borderRadius: '22%', opacity: 0.7 }} />
         <span style={{ color: MUTED, fontSize: 13 }}>StuntCock — Your messages. Handled.</span>
       </div>
       <div style={{ display: 'flex', gap: 24 }}>

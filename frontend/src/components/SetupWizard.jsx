@@ -64,7 +64,7 @@ export default function SetupWizard({ onComplete }) {
         <div className="flex flex-col items-center mb-10">
           <div className="mb-4 relative">
             <img
-              src="/stuntcock5.jpg"
+              src="/sc_bubble.jpg"
               alt="StuntCock"
               className="w-24 h-24"
               style={{ objectFit: 'cover', borderRadius: '22%', boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}

@@ -72,7 +72,7 @@ export default function MessageFeed({ liveMessages }) {
       <div className="flex-1 flex flex-col items-center justify-center gap-4">
         <div className="w-16 h-16 rounded-3xl flex items-center justify-center"
           style={{ background: 'rgba(61,114,232,0.1)', border: '1px solid rgba(61,114,232,0.2)' }}>
-          <img src="/stuntcock5.jpg" alt="" className="w-10 h-10 opacity-70" style={{ objectFit: 'cover', borderRadius: '22%' }} />
+          <img src="/sc_bubble.jpg" alt="" className="w-10 h-10 opacity-70" style={{ objectFit: 'cover', borderRadius: '22%' }} />
         </div>
         <div className="text-center">
           <p className="text-sm font-medium text-white/40">No messages yet</p>
@@ -101,6 +101,12 @@ export default function MessageFeed({ liveMessages }) {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-0.5">
                 <span className="text-white text-sm font-semibold truncate">{msg.sender}</span>
+                {msg.platform === 'whatsapp' && (
+                  <span className="text-xs px-1.5 py-0.5 rounded-full"
+                    style={{ background: 'rgba(37,211,102,0.12)', color: '#25D366', border: '1px solid rgba(37,211,102,0.25)' }}>
+                    WhatsApp
+                  </span>
+                )}
                 {msg.group_id && (
                   <span className="text-xs px-1.5 py-0.5 rounded-full"
                     style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.35)' }}>
