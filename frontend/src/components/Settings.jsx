@@ -22,24 +22,28 @@ const inputStyle = {
 
 export default function Settings() {
   const [form, setForm] = useState({
-    anthropic_api_key: '',
     llm_system_prompt: '',
     llm_enabled: 'true',
     global_cooldown_minutes: '0',
     timezone: 'America/New_York',
   });
-  const [showKey, setShowKey] = useState(false);
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     fetch(`${API}/api/settings`).then(r => r.json())
-      .then(data => setForm(f => ({ ...f, ...data }))).catch(() => {});
+      .then(data => {
+        const { anthropic_api_key_configured, ...rest } = data;
+        setApiKeyConfigured(!!anthropic_api_key_configured);
+        setForm(f => ({ ...f, ...rest }));
+      }).catch(() => {});
   }, []);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const save = async (e) => {
     e.preventDefault();
+    // anthropic_api_key is intentionally excluded — it is managed via .env only
     await fetch(`${API}/api/settings/bulk`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
@@ -56,23 +60,20 @@ export default function Settings() {
           </label>
         </Section>
 
-        <Section title="Anthropic API Key" desc="Required for LLM fallback. Never sent anywhere except Anthropic's API.">
-          <div className="relative">
+        <Section title="Anthropic API Key" desc="Set via the ANTHROPIC_API_KEY environment variable in your .env file. Restart the server after any change.">
+          {apiKeyConfigured ? (
             <input
-              type={showKey ? 'text' : 'password'}
-              value={form.anthropic_api_key}
-              onChange={e => set('anthropic_api_key', e.target.value)}
-              placeholder="sk-ant-..."
-              style={{ ...inputStyle, paddingRight: '72px' }}
-              onFocus={e => e.target.style.borderColor = 'rgba(61,114,232,0.6)'}
-              onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+              type="password"
+              value="••••••••••••••••"
+              readOnly
+              disabled
+              style={{ ...inputStyle, opacity: 0.5, cursor: 'not-allowed' }}
             />
-            <button type="button" onClick={() => setShowKey(v => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs px-2 py-1 rounded-lg transition-colors"
-              style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.06)' }}>
-              {showKey ? 'Hide' : 'Show'}
-            </button>
-          </div>
+          ) : (
+            <p className="text-sm" style={{ color: 'rgba(255,193,7,0.9)' }}>
+              ⚠ No API key configured. Add <code style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: '4px' }}>ANTHROPIC_API_KEY=sk-ant-...</code> to your <code style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: '4px' }}>.env</code> file and restart the server.
+            </p>
+          )}
         </Section>
 
         <Section title="LLM System Prompt" desc="Instructions Claude follows when generating auto-replies.">

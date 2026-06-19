@@ -115,7 +115,18 @@ signalClient.startDaemon(
 
 // Settings
 app.get('/api/settings', (req, res) => {
-  res.json(db.getAllSettings());
+  const settings = db.getAllSettings();
+  // Never expose the raw API key to the frontend; surface a boolean flag instead.
+  // Check both the environment variable and the DB value (env takes precedence in llmClient).
+  const envKey = process.env.ANTHROPIC_API_KEY;
+  const dbKey = settings.anthropic_api_key;
+  const apiKeyConfigured = !!(
+    (envKey && envKey.trim()) ||
+    (dbKey && dbKey.trim())
+  );
+  delete settings.anthropic_api_key;
+  settings.anthropic_api_key_configured = apiKeyConfigured;
+  res.json(settings);
 });
 
 app.post('/api/settings', (req, res) => {
