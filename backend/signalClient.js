@@ -147,6 +147,8 @@ function stopDaemon() {
 
 let lastTimestamp = 0;
 let pollInterval = null;
+let lastPollErrorLog = 0;
+let lastPollErrorMsg = '';
 
 function startPolling() {
   if (pollInterval) clearInterval(pollInterval);
@@ -186,7 +188,13 @@ async function pollMessages() {
       }
     }
   } catch (e) {
-    // Swallow poll errors — daemon may be starting up
+    // Rate-limited error logging — at most once per 60 s per unique message
+    const now = Date.now();
+    if (e.message !== lastPollErrorMsg || now - lastPollErrorLog >= 60000) {
+      console.error('[StuntCock] poll error:', e.message);
+      lastPollErrorLog = now;
+      lastPollErrorMsg = e.message;
+    }
   }
 }
 
