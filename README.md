@@ -46,6 +46,15 @@ Copy `.env.example` to `.env` and fill in:
 | `SIGNAL_CLI_PORT` | No | signal-cli daemon port (default: `8080`) |
 | `SIGNAL_PHONE_NUMBER` | After setup | Your registered Signal number in E.164 format (e.g. `+15550001234`) |
 
+> **Important — `ANTHROPIC_API_KEY` must be set in `.env`.**
+> The Anthropic API key is read exclusively from the environment variable at startup. It **cannot** be entered or saved via the Settings UI. The Settings page may show an API key field, but any value entered there is not used for authentication.
+>
+> **Migrating from the Settings UI?** If you previously entered your API key through the web UI, add it to your `.env` file now:
+> ```
+> ANTHROPIC_API_KEY=sk-ant-your-key-here
+> ```
+> Then restart StuntCock (`npm run dev`). The environment variable takes effect immediately on restart.
+
 ---
 
 ## First Launch
