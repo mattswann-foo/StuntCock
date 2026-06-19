@@ -8,6 +8,10 @@ const fs = require('fs');
 const DB_DIR = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 
+const MESSAGE_LIMIT       = 50;
+const HISTORY_TRIM_LIMIT  = 20;
+const HISTORY_FETCH_LIMIT = 10;
+
 const db = new Database(path.join(DB_DIR, 'stuntcock.db'));
 
 db.pragma('journal_mode = WAL');
@@ -156,7 +160,7 @@ function logMessage(entry) {
   });
 }
 
-function getRecentMessages(limit = 50) {
+function getRecentMessages(limit = MESSAGE_LIMIT) {
   return db.prepare(`
     SELECT ml.*, r.name as rule_name
     FROM message_log ml
@@ -198,19 +202,19 @@ function appendConversation(threadId, role, content) {
     INSERT INTO conversation_history (thread_id, role, content)
     VALUES (?, ?, ?)
   `).run(threadId, role, content);
-  // Keep only last 20 per thread
+  // Keep only last HISTORY_TRIM_LIMIT per thread
   db.prepare(`
     DELETE FROM conversation_history
     WHERE thread_id = ? AND id NOT IN (
       SELECT id FROM conversation_history
       WHERE thread_id = ?
       ORDER BY timestamp DESC
-      LIMIT 20
+      LIMIT ${HISTORY_TRIM_LIMIT}
     )
   `).run(threadId, threadId);
 }
 
-function getConversationHistory(threadId, limit = 10) {
+function getConversationHistory(threadId, limit = HISTORY_FETCH_LIMIT) {
   return db.prepare(`
     SELECT role, content FROM conversation_history
     WHERE thread_id = ?
@@ -232,6 +236,7 @@ function setCooldownLastFired(ruleId, sender) {
 
 module.exports = {
   db,
+  MESSAGE_LIMIT, HISTORY_TRIM_LIMIT, HISTORY_FETCH_LIMIT,
   getSetting, setSetting, getAllSettings,
   getRules, getRule, createRule, updateRule, deleteRule, reorderRules,
   logMessage, getRecentMessages, getAnalytics, getTodayStats,
