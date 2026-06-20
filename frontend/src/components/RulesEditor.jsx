@@ -1,6 +1,6 @@
 // StuntCock — Rules CRUD editor with drag-to-reorder
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { API } from '../lib/utils.js';
+import { API, getAuthHeaders } from '../lib/utils.js';
 import { PersonaModal } from './Personas.jsx';
 
 const EMPTY_RULE = {
@@ -377,7 +377,7 @@ export default function RulesEditor() {
   const [showModal, setShowModal] = useState(false);
   const dragIdx = useRef(null);
 
-  const load = () => fetch(`${API}/api/rules`).then(r => r.json()).then(setRules).catch(() => {});
+  const load = () => fetch(`${API}/api/rules`, { headers: getAuthHeaders() }).then(r => r.json()).then(setRules).catch(() => {});
   useEffect(() => {
     load();
     fetch(`${API}/api/contacts`).then(r => r.json()).then(setContacts).catch(() => {});
@@ -385,27 +385,27 @@ export default function RulesEditor() {
 
   const saveRule = async (form) => {
     if (form.id) {
-      await fetch(`${API}/api/rules/${form.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      await fetch(`${API}/api/rules/${form.id}`, { method: 'PUT', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
     } else {
-      await fetch(`${API}/api/rules`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      await fetch(`${API}/api/rules`, { method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
     }
     load();
   };
 
   const deleteRule = async (id) => {
     if (!confirm('Delete this rule?')) return;
-    await fetch(`${API}/api/rules/${id}`, { method: 'DELETE' });
+    await fetch(`${API}/api/rules/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
     load();
   };
 
   const toggleActive = async (rule) => {
-    await fetch(`${API}/api/rules/${rule.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...rule, active: !rule.active }) });
+    await fetch(`${API}/api/rules/${rule.id}`, { method: 'PUT', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ ...rule, active: !rule.active }) });
     load();
   };
 
   const duplicateRule = async (rule) => {
     const { id, created_at, updated_at, ...rest } = rule;
-    await fetch(`${API}/api/rules`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...rest, name: rest.name + ' (copy)' }) });
+    await fetch(`${API}/api/rules`, { method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ ...rest, name: rest.name + ' (copy)' }) });
     load();
   };
 
@@ -416,7 +416,7 @@ export default function RulesEditor() {
     reordered.splice(toIdx, 0, moved);
     setRules(reordered);
     dragIdx.current = null;
-    await fetch(`${API}/api/rules/reorder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: reordered.map(r => r.id) }) });
+    await fetch(`${API}/api/rules/reorder`, { method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: reordered.map(r => r.id) }) });
   };
 
   return (

@@ -18,3 +18,17 @@ export function formatDate(ts) {
 
 export const API = 'http://localhost:3001';
 export const WS_URL = 'ws://localhost:3001';
+
+/**
+ * Returns auth headers for fetch calls.
+ * Reads `stuntcock_api_token` from localStorage; returns the header when
+ * a non-empty value is stored, or an empty object when absent.
+ * @returns {{ 'X-StuntCock-Token': string } | {}}
+ */
+export function getAuthHeaders() {
+  const token = localStorage.getItem('stuntcock_api_token');
+  if (token && token.trim() !== '') {
+    return { 'X-StuntCock-Token': token };
+  }
+  return {};
+}
