@@ -22,8 +22,24 @@ const wss = new WebSocket.Server({ server });
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
-app.use(express.json());
+// --- Security: body size limit (64 KB) ---
+app.use(express.json({ limit: '64kb' }));
+app.use(express.urlencoded({ limit: '64kb', extended: false }));
 app.use(require('cors')({ origin: /^http:\/\/localhost:\d+$/ }));
+
+// --- Security: token authentication middleware ---
+const API_TOKEN = process.env.API_TOKEN;
+function requireAuth(req, res, next) {
+  if (!API_TOKEN) return next(); // no token configured — open access (dev mode)
+  const header = req.headers['authorization'] || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : req.headers['x-api-token'];
+  if (!token || token !== API_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+// Apply auth to all /api/* routes
+app.use('/api', requireAuth);
 
 // --- WebSocket broadcast ---
 
@@ -383,6 +399,17 @@ app.post('/api/personas/generate', async (req, res) => {
 // Health
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, version: '1.0.0', product: 'StuntCock' });
+});
+
+// --- Global error handler (must be last, 4-arg signature) ---
+// Handles PayloadTooLargeError (413) and other Express-level errors cleanly.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (err.status === 413 || err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Payload too large' });
+  }
+  console.error('[StuntCock] Unhandled error:', err.message);
+  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
 server.listen(PORT, () => {
