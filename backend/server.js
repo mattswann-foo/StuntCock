@@ -22,7 +22,7 @@ const wss = new WebSocket.Server({ server });
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
-app.use(express.json());
+app.use(express.json({ limit: '64kb' }));
 app.use(require('cors')({ origin: /^http:\/\/localhost:\d+$/ }));
 
 // --- WebSocket broadcast ---
