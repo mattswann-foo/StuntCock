@@ -1,6 +1,6 @@
 // StuntCock — Settings panel
 import React, { useEffect, useState } from 'react';
-import { API } from '../lib/utils.js';
+import { API, getAuthHeaders } from '../lib/utils.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 
 const TIMEZONES = [
@@ -34,16 +34,18 @@ export default function Settings() {
     whatsapp_enabled: 'false',
   });
   const [showKey, setShowKey] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+  const [apiToken, setApiToken] = useState(() => localStorage.getItem('stuntcock_api_token') || '');
   const [saved, setSaved] = useState(false);
   const [waStatus, setWaStatus] = useState({ running: false, authenticated: false, qrDataUrl: null });
   const [signalStatus, setSignalStatus] = useState({ running: false, enabled: true });
 
   useEffect(() => {
-    fetch(`${API}/api/settings`).then(r => r.json())
+    fetch(`${API}/api/settings`, { headers: { ...getAuthHeaders() } }).then(r => r.json())
       .then(data => setForm(f => ({ ...f, ...data }))).catch(() => {});
-    fetch(`${API}/api/whatsapp/status`).then(r => r.json())
+    fetch(`${API}/api/whatsapp/status`, { headers: { ...getAuthHeaders() } }).then(r => r.json())
       .then(setWaStatus).catch(() => {});
-    fetch(`${API}/api/signal/status`).then(r => r.json())
+    fetch(`${API}/api/signal/status`, { headers: { ...getAuthHeaders() } }).then(r => r.json())
       .then(setSignalStatus).catch(() => {});
   }, []);
 
@@ -53,8 +55,18 @@ export default function Settings() {
     if (event === 'signal_status') setSignalStatus(s => ({ ...s, ...data }));
   });
 
+  const saveToken = (value) => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      localStorage.setItem('stuntcock_api_token', trimmed);
+    } else {
+      localStorage.removeItem('stuntcock_api_token');
+    }
+    setApiToken(trimmed);
+  };
+
   const toggleSignal = async (enable) => {
-    await fetch(`${API}/api/signal/${enable ? 'enable' : 'disable'}`, { method: 'POST' });
+    await fetch(`${API}/api/signal/${enable ? 'enable' : 'disable'}`, { method: 'POST', headers: { ...getAuthHeaders() } });
     setSignalStatus(s => ({ ...s, enabled: enable }));
   };
 
@@ -62,7 +74,7 @@ export default function Settings() {
 
   const save = async (e) => {
     e.preventDefault();
-    await fetch(`${API}/api/settings/bulk`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+    await fetch(`${API}/api/settings/bulk`, { method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
@@ -95,6 +107,30 @@ export default function Settings() {
               {showKey ? 'Hide' : 'Show'}
             </button>
           </div>
+        </Section>
+
+        <Section title="Security" desc="API access token used to authenticate requests to the backend. Configure if you have enabled API_TOKEN in your .env.">
+          <div className="relative">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={apiToken}
+              onChange={e => setApiToken(e.target.value)}
+              onBlur={e => saveToken(e.target.value)}
+              placeholder={apiToken ? '••••••••••••••••' : 'Paste your API token here…'}
+              style={{ ...inputStyle, paddingRight: '72px' }}
+              onFocus={e => e.target.style.borderColor = 'rgba(61,114,232,0.6)'}
+            />
+            <button type="button" onClick={() => setShowToken(v => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs px-2 py-1 rounded-lg transition-colors"
+              style={{ color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.06)' }}>
+              {showToken ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {apiToken && (
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
+              Token stored in browser localStorage. Clear the field and click away to remove it.
+            </p>
+          )}
         </Section>
 
         <Section title="LLM System Prompt" desc="Instructions Claude follows when generating auto-replies.">
