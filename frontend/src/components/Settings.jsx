@@ -29,6 +29,9 @@ export default function Settings() {
     gif_enabled: 'false',
     gif_frequency: '0.3',
     giphy_api_key: '',
+    higgsfield_api_key: '',
+    grok_api_key: '',
+    meme_image_provider: 'higgsfield',
     global_cooldown_minutes: '0',
     timezone: 'America/New_York',
     whatsapp_enabled: 'false',
@@ -184,6 +187,53 @@ export default function Settings() {
               onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
             />
           </>)}
+        </Section>
+
+        <Section title="Meme Tools" desc="Choose which AI image provider generates your memes. Add the corresponding API key below.">
+          {/* Provider picker */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            {[
+              { id: 'higgsfield', label: '🔬 Higgsfield', sub: 'Face-reference, $0.04/img' },
+              { id: 'grok',       label: '✦ Grok Aurora', sub: 'xAI text-to-image' },
+            ].map(p => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => set('meme_image_provider', p.id)}
+                style={{
+                  flex: 1, border: 'none', borderRadius: 12, padding: '10px 14px', cursor: 'pointer',
+                  background: form.meme_image_provider === p.id ? 'rgba(114,9,183,0.3)' : 'rgba(255,255,255,0.04)',
+                  outline: form.meme_image_provider === p.id ? '1px solid rgba(114,9,183,0.7)' : '1px solid rgba(255,255,255,0.08)',
+                  textAlign: 'left',
+                }}
+              >
+                <div style={{ color: 'white', fontWeight: 700, fontSize: 13 }}>{p.label}</div>
+                <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 2 }}>{p.sub}</div>
+              </button>
+            ))}
+          </div>
+
+          {/* Higgsfield key */}
+          <input
+            type="password"
+            value={form.higgsfield_api_key}
+            onChange={e => set('higgsfield_api_key', e.target.value)}
+            placeholder="Higgsfield API key (higgsfield.ai)"
+            style={{ ...inputStyle, marginBottom: 8, opacity: form.meme_image_provider === 'higgsfield' ? 1 : 0.45 }}
+            onFocus={e => e.target.style.borderColor = 'rgba(114,9,183,0.6)'}
+            onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+          />
+
+          {/* Grok key */}
+          <input
+            type="password"
+            value={form.grok_api_key}
+            onChange={e => set('grok_api_key', e.target.value)}
+            placeholder="Grok API key (console.x.ai)"
+            style={{ ...inputStyle, opacity: form.meme_image_provider === 'grok' ? 1 : 0.45 }}
+            onFocus={e => e.target.style.borderColor = 'rgba(114,9,183,0.6)'}
+            onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+          />
         </Section>
 
         <Section title="Global Default Cooldown" desc="Applied to rules that don't have their own cooldown set.">

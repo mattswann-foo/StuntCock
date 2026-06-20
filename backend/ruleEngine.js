@@ -140,6 +140,8 @@ function matchMessage(message) {
       response = renderTemplate(rule.response_text, message);
     } else if (rule.response_type === 'llm') {
       response = null; // signal to caller to invoke LLM
+    } else if (rule.response_type === 'meme') {
+      response = null; // signal to caller to send a meme image
     }
 
     return { rule, response };

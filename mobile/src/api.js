@@ -56,6 +56,22 @@ export const api = {
   generatePersonaPrompt: (name, description) =>
     req('/api/personas/generate', { method: 'POST', body: { name, description } }),
 
+  // Meme Tools
+  getMemes: () => req('/api/memes'),
+  deleteMeme: (id) => req(`/api/memes/${id}`, { method: 'DELETE' }),
+  getMemeCredits: () => req('/api/memes/credits'),
+  previewCaptions: (personaId) =>
+    req('/api/memes/captions', { method: 'POST', body: { persona_id: personaId } }),
+  generateMemes: (photoUri, personaId, captions) => {
+    const formData = new FormData();
+    formData.append('photo', { uri: photoUri, type: 'image/jpeg', name: 'photo.jpg' });
+    formData.append('persona_id', String(personaId));
+    formData.append('captions', JSON.stringify(captions));
+    return fetch(`${API_BASE}/api/memes/generate`, { method: 'POST', body: formData })
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
+  },
+  getMemeImageUrl: (id) => `${API_BASE}/api/memes/image/${id}`,
+
   // Health
   health: () => req('/api/health'),
 };

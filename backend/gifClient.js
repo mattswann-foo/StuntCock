@@ -99,4 +99,17 @@ async function fetchGifPath(messageBody, replyText) {
   }
 }
 
-module.exports = { fetchGifPath };
+async function searchGiphy(query, limit = 12) {
+  const key = getGiphyKey();
+  if (!key) throw new Error('GIPHY_API_KEY not set');
+  const url = `https://api.giphy.com/v1/gifs/search?q=${encodeURIComponent(query)}&api_key=${key}&limit=${limit}&rating=pg-13`;
+  const data = await httpGet(url);
+  return (data?.data || []).map(g => ({
+    gif_id: g.id,
+    gif_url: g.images?.downsized?.url || g.images?.original?.url,
+    preview_url: g.images?.fixed_width_small?.url || g.images?.preview_gif?.url,
+    title: g.title,
+  })).filter(g => g.gif_url);
+}
+
+module.exports = { fetchGifPath, searchGiphy };

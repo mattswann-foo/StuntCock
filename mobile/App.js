@@ -10,6 +10,7 @@ import AnalyticsScreen from './src/screens/AnalyticsScreen';
 import PersonasScreen from './src/screens/PersonasScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import AuthScreen from './src/screens/AuthScreen';
+import MemeToolsScreen from './src/screens/MemeToolsScreen';
 import { useAuth } from './src/useAuth';
 
 const Tab = createBottomTabNavigator();
@@ -89,6 +90,15 @@ export default function App() {
             title: 'Personas',
             tabBarLabel: 'Personas',
             tabBarIcon: ({ focused }) => <TabIcon icon="🎭" focused={focused} />,
+          }}
+        />
+        <Tab.Screen
+          name="Memes"
+          component={MemeToolsScreen}
+          options={{
+            title: 'Meme Tools',
+            tabBarLabel: 'Memes',
+            tabBarIcon: ({ focused }) => <TabIcon icon="🎨" focused={focused} />,
           }}
         />
         <Tab.Screen
