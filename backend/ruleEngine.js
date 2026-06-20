@@ -86,14 +86,31 @@ function matchesSender(rule, sender, groupId) {
 }
 
 /**
+ * Returns the effective cooldown minutes for a rule, taking the global
+ * cooldown floor into account.  The effective value is:
+ *   max(rule.cooldown_minutes, global_cooldown_minutes)
+ * This ensures the global setting acts as a system-wide minimum.
+ *
+ * @param {object} rule
+ * @returns {number}
+ */
+function getEffectiveCooldown(rule) {
+  const globalMinutes = parseInt(getSetting('global_cooldown_minutes', '0'), 10) || 0;
+  const ruleMinutes = rule.cooldown_minutes || 0;
+  return Math.max(ruleMinutes, globalMinutes);
+}
+
+/**
  * Checks if a cooldown is blocking this rule from firing for this sender.
+ * Uses the effective cooldown (max of rule-level and global floor).
  */
 function isCooledDown(rule, sender) {
-  if (!rule.cooldown_minutes || rule.cooldown_minutes <= 0) return false;
+  const effectiveMinutes = getEffectiveCooldown(rule);
+  if (effectiveMinutes <= 0) return false;
   const lastFired = getCooldownLastFired(rule.id, sender);
   if (!lastFired) return false;
   const elapsedMinutes = (Date.now() - lastFired.getTime()) / 60000;
-  return elapsedMinutes < rule.cooldown_minutes;
+  return elapsedMinutes < effectiveMinutes;
 }
 
 /**
@@ -128,8 +145,9 @@ function matchMessage(message) {
     if (!isScheduleActive(rule, timezone)) continue;
     if (isCooledDown(rule, sender)) continue;
 
-    // Mark cooldown
-    if (rule.cooldown_minutes > 0) {
+    // Mark cooldown (if effective cooldown > 0, stamp last_fired so future
+    // calls to isCooledDown can gate the rule correctly)
+    if (getEffectiveCooldown(rule) > 0) {
       setCooldownLastFired(rule.id, sender);
     }
 
@@ -148,4 +166,4 @@ function matchMessage(message) {
   return null;
 }
 
-module.exports = { matchMessage, isSelfMessage };
+module.exports = { matchMessage, isSelfMessage, getEffectiveCooldown, isCooledDown };
