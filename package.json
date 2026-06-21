@@ -8,7 +8,8 @@
     "frontend": "cd frontend && npm run dev",
     "preflight": "node scripts/preflight.js",
     "seed": "node scripts/seed.js",
-    "install:all": "npm install && cd frontend && npm install"
+    "install:all": "npm install && cd frontend && npm install",
+    "test": "node --test backend/__tests__/**/*.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
