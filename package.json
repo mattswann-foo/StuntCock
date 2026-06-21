@@ -8,7 +8,12 @@
     "frontend": "cd frontend && npm run dev",
     "preflight": "node scripts/preflight.js",
     "seed": "node scripts/seed.js",
-    "install:all": "npm install && cd frontend && npm install"
+    "install:all": "npm install && cd frontend && npm install",
+    "test": "jest --testPathPattern='backend/__tests__' --forceExit"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.2.2"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
