@@ -1,7 +1,7 @@
 // StuntCock — Analytics panel with 7-day bar chart
 import React, { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { API } from '../lib/utils.js';
+import { API, getAuthHeaders } from '../lib/utils.js';
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
@@ -41,7 +41,7 @@ export default function Analytics() {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    fetch(`${API}/api/analytics?days=7`).then(r => r.json()).then(setData).catch(() => {});
+    fetch(`${API}/api/analytics?days=7`, { headers: { ...getAuthHeaders() } }).then(r => r.json()).then(setData).catch(() => {});
   }, []);
 
   const daily = data?.daily ?? [];
