@@ -217,6 +217,45 @@ export default function SettingsScreen({ onSignOut }) {
         </View>
       </SettingSection>
 
+      <SettingSection title="Meme Tools">
+        <View style={styles.inputRow}>
+          <Text style={styles.rowLabel}>Image provider</Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+            {[
+              { id: 'higgsfield', label: '🔬 Higgsfield' },
+              { id: 'grok',       label: '✦ Grok Aurora' },
+            ].map(p => (
+              <Pressable
+                key={p.id}
+                onPress={() => set('meme_image_provider', p.id)}
+                style={{
+                  flex: 1, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, alignItems: 'center',
+                  backgroundColor: settings.meme_image_provider === p.id ? 'rgba(114,9,183,0.35)' : 'rgba(255,255,255,0.05)',
+                  borderWidth: 1,
+                  borderColor: settings.meme_image_provider === p.id ? 'rgba(114,9,183,0.8)' : 'rgba(255,255,255,0.1)',
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>{p.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+        <InputRow
+          label="Higgsfield API key"
+          value={settings.higgsfield_api_key}
+          onChange={v => set('higgsfield_api_key', v)}
+          placeholder="hf-…"
+          secureTextEntry
+        />
+        <InputRow
+          label="Grok (xAI) API key"
+          value={settings.grok_api_key}
+          onChange={v => set('grok_api_key', v)}
+          placeholder="xai-…"
+          secureTextEntry
+        />
+      </SettingSection>
+
       <SettingSection title="General">
         <InputRow
           label="Global Cooldown (minutes)"

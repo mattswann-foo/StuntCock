@@ -21,6 +21,56 @@ try { db.exec(`ALTER TABLE rules ADD COLUMN rule_gif_enabled TEXT`); } catch (_)
 try { db.exec(`ALTER TABLE rules ADD COLUMN rule_gif_frequency TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE rules ADD COLUMN persona_id INTEGER REFERENCES personas(id) ON DELETE SET NULL`); } catch (_) {}
 try { db.exec(`ALTER TABLE rules ADD COLUMN platform_filter TEXT NOT NULL DEFAULT 'any'`); } catch (_) {}
+try { db.exec(`ALTER TABLE message_log ADD COLUMN response_type TEXT`); } catch (_) {}
+// Media pool columns on rules
+try { db.exec(`ALTER TABLE rules ADD COLUMN media_pool_enabled TEXT DEFAULT ''`); } catch (_) {}
+try { db.exec(`ALTER TABLE rules ADD COLUMN media_pool_frequency TEXT DEFAULT ''`); } catch (_) {}
+try { db.exec(`ALTER TABLE rules ADD COLUMN media_pool_type TEXT DEFAULT 'any'`); } catch (_) {}
+// Global flag on meme_library
+try { db.exec(`ALTER TABLE meme_library ADD COLUMN is_global INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+// Expand rules.response_type CHECK constraint to include 'meme' (SQLite requires table recreation)
+try {
+  const hasMemeCol = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='rules'`).get();
+  if (hasMemeCol && !hasMemeCol.sql.includes("'meme'")) {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE IF NOT EXISTS rules_v2 (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        name            TEXT NOT NULL,
+        active          INTEGER NOT NULL DEFAULT 1,
+        priority        INTEGER NOT NULL DEFAULT 0,
+        trigger_type    TEXT NOT NULL CHECK(trigger_type IN ('any','exact','contains','starts_with','regex')),
+        trigger_value   TEXT,
+        sender_filter   TEXT NOT NULL DEFAULT 'all',
+        response_type   TEXT NOT NULL CHECK(response_type IN ('static','llm','template','meme')),
+        response_text   TEXT,
+        schedule_start  TEXT,
+        schedule_end    TEXT,
+        schedule_days   TEXT,
+        cooldown_minutes INTEGER NOT NULL DEFAULT 0,
+        rule_llm_prompt TEXT,
+        rule_gif_enabled TEXT,
+        rule_gif_frequency TEXT,
+        persona_id      INTEGER REFERENCES personas(id) ON DELETE SET NULL,
+        platform_filter TEXT NOT NULL DEFAULT 'any',
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT OR IGNORE INTO rules_v2
+        SELECT id, name, active, priority, trigger_type, trigger_value, sender_filter,
+               response_type, response_text, schedule_start, schedule_end, schedule_days,
+               cooldown_minutes,
+               COALESCE(rule_llm_prompt, ''), COALESCE(rule_gif_enabled, ''), COALESCE(rule_gif_frequency, ''),
+               persona_id, COALESCE(platform_filter, 'any'), created_at, updated_at
+        FROM rules;
+      DROP TABLE rules;
+      ALTER TABLE rules_v2 RENAME TO rules;
+      COMMIT;
+    `);
+  }
+} catch (_) {}
+// Seed default meme credits row
+try { db.exec(`INSERT OR IGNORE INTO meme_credits (id, credits) VALUES (1, 3)`); } catch (_) {}
 // Persona taxonomy columns
 try { db.exec(`ALTER TABLE personas ADD COLUMN persona_key TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE personas ADD COLUMN group_id TEXT`); } catch (_) {}
@@ -91,6 +141,41 @@ db.exec(`
     last_fired TEXT NOT NULL,
     PRIMARY KEY (rule_id, sender)
   );
+
+  CREATE TABLE IF NOT EXISTS meme_library (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id   INTEGER REFERENCES personas(id) ON DELETE SET NULL,
+    caption      TEXT NOT NULL,
+    image_path   TEXT NOT NULL,
+    generation_session TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS gif_library (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    gif_id      TEXT,
+    gif_url     TEXT NOT NULL,
+    preview_url TEXT,
+    source      TEXT NOT NULL DEFAULT 'giphy',
+    tags        TEXT,
+    rule_id     INTEGER REFERENCES rules(id) ON DELETE CASCADE,
+    persona_id  INTEGER REFERENCES personas(id) ON DELETE SET NULL,
+    is_global   INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS rule_meme_pool (
+    rule_id  INTEGER NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+    meme_id  INTEGER NOT NULL REFERENCES meme_library(id) ON DELETE CASCADE,
+    PRIMARY KEY (rule_id, meme_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS meme_credits (
+    id           INTEGER PRIMARY KEY CHECK(id = 1),
+    credits      INTEGER NOT NULL DEFAULT 3,
+    reset_at     TEXT NOT NULL DEFAULT (datetime('now', '+30 days'))
+  );
+
 `);
 
 // --- Settings helpers ---
@@ -123,10 +208,12 @@ function createRule(rule) {
   const stmt = db.prepare(`
     INSERT INTO rules (name, active, priority, trigger_type, trigger_value, sender_filter,
       response_type, response_text, schedule_start, schedule_end, schedule_days, cooldown_minutes,
-      rule_llm_prompt, rule_gif_enabled, rule_gif_frequency, persona_id, platform_filter)
+      rule_llm_prompt, rule_gif_enabled, rule_gif_frequency, persona_id, platform_filter,
+      media_pool_enabled, media_pool_frequency, media_pool_type)
     VALUES (@name, @active, @priority, @trigger_type, @trigger_value, @sender_filter,
       @response_type, @response_text, @schedule_start, @schedule_end, @schedule_days, @cooldown_minutes,
-      @rule_llm_prompt, @rule_gif_enabled, @rule_gif_frequency, @persona_id, @platform_filter)
+      @rule_llm_prompt, @rule_gif_enabled, @rule_gif_frequency, @persona_id, @platform_filter,
+      @media_pool_enabled, @media_pool_frequency, @media_pool_type)
   `);
   const info = stmt.run({
     name: rule.name,
@@ -146,6 +233,9 @@ function createRule(rule) {
     rule_gif_frequency: rule.rule_gif_frequency ?? null,
     persona_id: rule.persona_id ?? null,
     platform_filter: rule.platform_filter ?? 'any',
+    media_pool_enabled: rule.media_pool_enabled ?? '',
+    media_pool_frequency: rule.media_pool_frequency ?? '',
+    media_pool_type: rule.media_pool_type ?? 'any',
   });
   return getRule(info.lastInsertRowid);
 }
@@ -160,7 +250,8 @@ function updateRule(id, updates) {
       response_text=@response_text, schedule_start=@schedule_start, schedule_end=@schedule_end,
       schedule_days=@schedule_days, cooldown_minutes=@cooldown_minutes, updated_at=@updated_at,
       rule_llm_prompt=@rule_llm_prompt, rule_gif_enabled=@rule_gif_enabled, rule_gif_frequency=@rule_gif_frequency,
-      persona_id=@persona_id, platform_filter=@platform_filter
+      persona_id=@persona_id, platform_filter=@platform_filter,
+      media_pool_enabled=@media_pool_enabled, media_pool_frequency=@media_pool_frequency, media_pool_type=@media_pool_type
     WHERE id=@id
   `).run({ ...merged, active: merged.active ? 1 : 0 });
   return getRule(id);
@@ -424,6 +515,123 @@ function deletePersona(id) {
   db.prepare('DELETE FROM personas WHERE id = ? AND is_builtin = 0').run(id);
 }
 
+// ── Meme library ──────────────────────────────────────────────────────────────
+
+function getMemes() {
+  return db.prepare(`
+    SELECT m.*, p.name AS persona_name, p.emoji AS persona_emoji
+    FROM meme_library m
+    LEFT JOIN personas p ON m.persona_id = p.id
+    ORDER BY m.created_at DESC
+  `).all();
+}
+
+function getMeme(id) {
+  return db.prepare('SELECT * FROM meme_library WHERE id = ?').get(id);
+}
+
+function createMeme({ persona_id, caption, image_path, generation_session }) {
+  const info = db.prepare(
+    'INSERT INTO meme_library (persona_id, caption, image_path, generation_session) VALUES (?, ?, ?, ?)'
+  ).run(persona_id, caption, image_path, generation_session || null);
+  return getMeme(info.lastInsertRowid);
+}
+
+function deleteMeme(id) {
+  const meme = getMeme(id);
+  db.prepare('DELETE FROM meme_library WHERE id = ?').run(id);
+  return meme;
+}
+
+// ── Meme credits ──────────────────────────────────────────────────────────────
+
+function getMemeCredits() {
+  let row = db.prepare('SELECT * FROM meme_credits WHERE id = 1').get();
+  if (!row) {
+    db.prepare("INSERT INTO meme_credits (id, credits, reset_at) VALUES (1, 3, datetime('now', '+30 days'))").run();
+    row = db.prepare('SELECT * FROM meme_credits WHERE id = 1').get();
+  }
+  // Auto-reset if past reset_at
+  if (new Date(row.reset_at) <= new Date()) {
+    db.prepare("UPDATE meme_credits SET credits = 3, reset_at = datetime('now', '+30 days') WHERE id = 1").run();
+    row = db.prepare('SELECT * FROM meme_credits WHERE id = 1').get();
+  }
+  return row;
+}
+
+function consumeMemeCredit() {
+  const row = getMemeCredits();
+  if (row.credits < 1) throw new Error('No generation credits remaining');
+  db.prepare('UPDATE meme_credits SET credits = credits - 1 WHERE id = 1').run();
+  return getMemeCredits();
+}
+
+function getRandomMeme(personaId = null) {
+  if (personaId) {
+    return db.prepare('SELECT * FROM meme_library WHERE persona_id = ? ORDER BY RANDOM() LIMIT 1').get(personaId);
+  }
+  return db.prepare('SELECT * FROM meme_library ORDER BY RANDOM() LIMIT 1').get();
+}
+
+function setMemeGlobal(id, isGlobal) {
+  db.prepare('UPDATE meme_library SET is_global = ? WHERE id = ?').run(isGlobal ? 1 : 0, id);
+  return getMeme(id);
+}
+
+// ── GIF library helpers ───────────────────────────────────────────────────────
+
+function getGifs({ ruleId, personaId, isGlobal } = {}) {
+  if (isGlobal) return db.prepare('SELECT * FROM gif_library WHERE is_global = 1 ORDER BY created_at DESC').all();
+  if (ruleId)   return db.prepare('SELECT * FROM gif_library WHERE rule_id = ? ORDER BY created_at DESC').get(ruleId)
+                  ? db.prepare('SELECT * FROM gif_library WHERE rule_id = ? ORDER BY created_at DESC').all(ruleId)
+                  : [];
+  if (personaId) return db.prepare('SELECT * FROM gif_library WHERE persona_id = ? AND rule_id IS NULL AND is_global = 0 ORDER BY created_at DESC').all(personaId);
+  return db.prepare('SELECT * FROM gif_library ORDER BY created_at DESC').all();
+}
+
+function addGif({ gifId, gifUrl, previewUrl, source = 'giphy', tags, ruleId, personaId, isGlobal = 0 }) {
+  const info = db.prepare(
+    'INSERT INTO gif_library (gif_id, gif_url, preview_url, source, tags, rule_id, persona_id, is_global) VALUES (?,?,?,?,?,?,?,?)'
+  ).run(gifId || null, gifUrl, previewUrl || null, source, tags || null, ruleId || null, personaId || null, isGlobal ? 1 : 0);
+  return db.prepare('SELECT * FROM gif_library WHERE id = ?').get(info.lastInsertRowid);
+}
+
+function removeGif(id) {
+  db.prepare('DELETE FROM gif_library WHERE id = ?').run(id);
+}
+
+// ── Rule meme pool helpers ────────────────────────────────────────────────────
+
+function getRuleMemePool(ruleId) {
+  return db.prepare(`
+    SELECT m.*, p.name AS persona_name, p.emoji AS persona_emoji
+    FROM rule_meme_pool rmp
+    JOIN meme_library m ON rmp.meme_id = m.id
+    LEFT JOIN personas p ON m.persona_id = p.id
+    WHERE rmp.rule_id = ?
+  `).all(ruleId);
+}
+
+function addMemeToRulePool(ruleId, memeId) {
+  db.prepare('INSERT OR IGNORE INTO rule_meme_pool (rule_id, meme_id) VALUES (?, ?)').run(ruleId, memeId);
+}
+
+function removeMemeFromRulePool(ruleId, memeId) {
+  db.prepare('DELETE FROM rule_meme_pool WHERE rule_id = ? AND meme_id = ?').run(ruleId, memeId);
+}
+
+// Returns the full media pool for a rule: rule-specific GIFs, rule meme pool, persona memes, global items.
+function getMediaPool(ruleId, personaId) {
+  const ruleGifs  = ruleId   ? db.prepare('SELECT * FROM gif_library WHERE rule_id = ?').all(ruleId) : [];
+  const ruleMemes = ruleId   ? getRuleMemePool(ruleId) : [];
+  const globalGifs  = db.prepare('SELECT * FROM gif_library WHERE is_global = 1').all();
+  const globalMemes = db.prepare('SELECT * FROM meme_library WHERE is_global = 1').all();
+  const personaMemes = personaId
+    ? db.prepare('SELECT * FROM meme_library WHERE persona_id = ? AND is_global = 0').all(personaId)
+    : [];
+  return { ruleGifs, ruleMemes, globalGifs, globalMemes, personaMemes };
+}
+
 module.exports = {
   db,
   getSetting, setSetting, getAllSettings,
@@ -433,4 +641,7 @@ module.exports = {
   getCooldownLastFired, setCooldownLastFired,
   getContacts,
   getPersonas, getPersonaGroups, getPersona, createPersona, updatePersona, deletePersona,
+  getMemes, getMeme, createMeme, deleteMeme, getMemeCredits, consumeMemeCredit, getRandomMeme, setMemeGlobal,
+  getGifs, addGif, removeGif,
+  getRuleMemePool, addMemeToRulePool, removeMemeFromRulePool, getMediaPool,
 };

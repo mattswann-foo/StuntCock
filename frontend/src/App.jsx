@@ -7,6 +7,7 @@ import RulesEditor from './components/RulesEditor.jsx';
 import Settings from './components/Settings.jsx';
 import Analytics from './components/Analytics.jsx';
 import Personas from './components/Personas.jsx';
+import MemeTools from './components/MemeTools.jsx';
 import CrashBanner from './components/CrashBanner.jsx';
 import { ToastProvider, useToast } from './components/Toast.jsx';
 import { useWebSocket } from './hooks/useWebSocket.js';
@@ -17,6 +18,7 @@ const PAGE_TITLES = {
   rules:     'Rules',
   personas:  'Personas',
   analytics: 'Analytics',
+  memetools: 'Meme Tools',
   settings:  'Settings',
 };
 
@@ -106,6 +108,11 @@ function AppInner() {
         {page === 'rules'     && <RulesEditor />}
         {page === 'personas'  && <Personas />}
         {page === 'analytics' && <Analytics />}
+        {page === 'memetools' && (
+          <div className="flex-1 overflow-y-auto p-5">
+            <MemeTools />
+          </div>
+        )}
         {page === 'settings'  && <Settings />}
       </main>
     </div>

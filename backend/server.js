@@ -11,7 +11,11 @@ const path = require('path');
 const db = require('./db');
 const { matchMessage, isSelfMessage } = require('./ruleEngine');
 const { generateLLMReply, resetClient } = require('./llmClient');
-const { fetchGifPath } = require('./gifClient');
+const { fetchGifPath, searchGiphy } = require('./gifClient');
+const { resolveMediaForRule } = require('./mediaPool');
+const { previewCaptions, generateMemes } = require('./memeClient');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const fs = require('fs');
 const signalClient = require('./signalClient');
 const whatsappClient = require('./whatsappClient');
@@ -71,31 +75,39 @@ async function handleInbound(msg) {
   const globalGifEnabled = db.getSetting('gif_enabled', 'false') === 'true';
   const globalGifFrequency = parseFloat(db.getSetting('gif_frequency', '0.3'));
 
-  // Per-rule overrides (null means "use global")
   const rule = result?.rule ?? null;
-  const ruleGifOverride = rule?.rule_gif_enabled;
-  const gifEnabled = (ruleGifOverride && ruleGifOverride !== '') ? ruleGifOverride === 'true' : globalGifEnabled;
-  const gifFrequency = (rule?.rule_gif_frequency && rule.rule_gif_frequency !== '') ? parseFloat(rule.rule_gif_frequency) : globalGifFrequency;
 
-  // Roll for GIF on any LLM-bound response (rule-matched or fallback)
-  const wouldUseLLM = result ? result.rule.response_type === 'llm' && llmEnabled : llmEnabled;
-  const rollGif = gifEnabled && wouldUseLLM && Math.random() < gifFrequency;
+  // ── Media pool: fires as a supplement alongside any response type ─────────
+  // Per-rule settings override global gif settings when set.
+  const poolEnabledRaw = rule?.media_pool_enabled;
+  const poolEnabled = poolEnabledRaw && poolEnabledRaw !== ''
+    ? poolEnabledRaw === 'true'
+    : (rule?.rule_gif_enabled && rule.rule_gif_enabled !== '' ? rule.rule_gif_enabled === 'true' : globalGifEnabled);
 
-  if (rollGif) {
-    let gifPath = null;
-    try {
-      gifPath = await fetchGifPath(msg.body, '').catch(() => null);
-      if (gifPath) {
-        await platformSendAttachment(msg, gifPath);
-        response = '[GIF]';
-        responseType = 'static';
-        matchedRule = rule;
-        console.log('[StuntCock] GIF-only reply:', gifPath);
+  const poolFreqRaw = rule?.media_pool_frequency;
+  const poolFrequency = poolFreqRaw && poolFreqRaw !== ''
+    ? parseFloat(poolFreqRaw)
+    : (rule?.rule_gif_frequency && rule.rule_gif_frequency !== '' ? parseFloat(rule.rule_gif_frequency) : globalGifFrequency);
+
+  const poolType = rule?.media_pool_type || 'any'; // 'gif' | 'meme' | 'any'
+
+  // Roll for media on any matched rule (not just LLM)
+  const rollMedia = result && poolEnabled && Math.random() < poolFrequency;
+
+  if (result && result.rule.response_type === 'meme') {
+    // response_type=meme: send a curated/random meme as the sole reply
+    matchedRule = result.rule;
+    const media = await resolveMediaForRule(msg.body, result.rule.id, result.rule.persona_id || null, 'meme').catch(() => null);
+    if (media) {
+      try {
+        await platformSendAttachment(msg, media.filePath);
+        response = media.caption ? `[Meme: ${media.caption}]` : '[Meme]';
+        responseType = 'meme';
+      } catch (e) {
+        console.error('[StuntCock] Meme send error', e.message);
+      } finally {
+        if (media.isTemp) fs.unlink(media.filePath, () => {});
       }
-    } catch (e) {
-      console.error('[StuntCock] GIF send error', e.message);
-    } finally {
-      if (gifPath) fs.unlink(gifPath, () => {});
     }
   } else if (result) {
     matchedRule = result.rule;
@@ -115,13 +127,30 @@ async function handleInbound(msg) {
     }
   }
 
-  if (response && response !== '[GIF]') {
+  if (response) {
     try {
       await platformSendMessage(msg, response);
     } catch (e) {
       console.error('[StuntCock] Send error', e.message);
       broadcast('error', { message: `Failed to send reply: ${e.message}` });
     }
+  }
+
+  // ── Supplementary media (fires after text reply, based on frequency roll) ──
+  if (rollMedia && responseType !== 'meme') {
+    resolveMediaForRule(msg.body, rule.id, rule.persona_id || null, poolType)
+      .then(async (media) => {
+        if (!media) return;
+        try {
+          await platformSendAttachment(msg, media.filePath);
+          console.log(`[StuntCock] Media supplement sent (${media.type})`);
+        } catch (e) {
+          console.error('[StuntCock] Media supplement send error', e.message);
+        } finally {
+          if (media.isTemp) fs.unlink(media.filePath, () => {});
+        }
+      })
+      .catch(e => console.error('[StuntCock] Media pool resolve error', e.message));
   }
 
   const logEntry = {
@@ -378,6 +407,148 @@ app.post('/api/personas/generate', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Meme Tools API ────────────────────────────────────────────────────────────
+
+// Meme library
+app.get('/api/memes', (req, res) => {
+  res.json(db.getMemes());
+});
+
+app.delete('/api/memes/:id', (req, res) => {
+  const meme = db.deleteMeme(req.params.id);
+  if (meme && fs.existsSync(meme.image_path)) fs.unlink(meme.image_path, () => {});
+  res.json({ ok: true });
+});
+
+// Credits
+app.get('/api/memes/credits', (req, res) => {
+  res.json(db.getMemeCredits());
+});
+
+// Caption preview — no credit consumed
+app.post('/api/memes/captions', async (req, res) => {
+  const { persona_id } = req.body;
+  if (!persona_id) return res.status(400).json({ error: 'persona_id required' });
+  try {
+    const captions = await previewCaptions(persona_id);
+    res.json({ captions });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Full generation — consumes 1 credit, generates 10 memes
+app.post('/api/memes/generate', upload.single('photo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'photo required' });
+  const { persona_id, captions: captionsJson } = req.body;
+  if (!persona_id) return res.status(400).json({ error: 'persona_id required' });
+
+  let captions;
+  try {
+    captions = captionsJson ? JSON.parse(captionsJson) : await previewCaptions(persona_id);
+  } catch (e) {
+    return res.status(400).json({ error: 'Invalid captions JSON' });
+  }
+
+  // Check + consume credit
+  try { db.consumeMemeCredit(); } catch (e) {
+    return res.status(402).json({ error: e.message });
+  }
+
+  const session = `session_${Date.now()}`;
+
+  try {
+    const results = await generateMemes(req.file.buffer, req.file.mimetype, captions, parseInt(persona_id));
+
+    const saved = [];
+    for (const r of results) {
+      if (!r.ok || !r.tmpPath) continue;
+      // Move from tmp to persistent data/memes dir
+      const memesDir = path.join(__dirname, '..', 'data', 'memes');
+      if (!fs.existsSync(memesDir)) fs.mkdirSync(memesDir, { recursive: true });
+      const dest = path.join(memesDir, path.basename(r.tmpPath));
+      try {
+        fs.renameSync(r.tmpPath, dest);
+        const meme = db.createMeme({ persona_id: parseInt(persona_id), caption: r.caption, image_path: dest, generation_session: session });
+        saved.push(meme);
+      } catch (e) {
+        console.error('[Meme] save error', e.message);
+      }
+    }
+
+    res.json({ memes: saved, credits: db.getMemeCredits() });
+  } catch (e) {
+    // Refund credit on total failure
+    db.db.prepare('UPDATE meme_credits SET credits = credits + 1 WHERE id = 1').run();
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Serve meme images
+app.get('/api/memes/image/:id', (req, res) => {
+  const meme = db.getMeme(req.params.id);
+  if (!meme || !fs.existsSync(meme.image_path)) return res.status(404).json({ error: 'Not found' });
+  res.sendFile(meme.image_path);
+});
+
+// Toggle meme global flag
+app.patch('/api/memes/:id/global', (req, res) => {
+  try {
+    const meme = db.setMemeGlobal(req.params.id, !!req.body.is_global);
+    res.json(meme);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── GIF Library API ───────────────────────────────────────────────────────────
+
+app.get('/api/gifs', (req, res) => {
+  const { rule_id, persona_id, global: isGlobal } = req.query;
+  res.json(db.getGifs({
+    ruleId: rule_id ? parseInt(rule_id) : undefined,
+    personaId: persona_id ? parseInt(persona_id) : undefined,
+    isGlobal: isGlobal === 'true',
+  }));
+});
+
+app.post('/api/gifs', (req, res) => {
+  try {
+    const gif = db.addGif(req.body);
+    res.json(gif);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/gifs/:id', (req, res) => {
+  db.removeGif(req.params.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/gifs/search', async (req, res) => {
+  try {
+    const { query, limit = 12 } = req.body;
+    if (!query) return res.status(400).json({ error: 'query required' });
+    const results = await searchGiphy(query, limit);
+    res.json(results);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Rule meme pool API ────────────────────────────────────────────────────────
+
+app.get('/api/rules/:id/meme-pool', (req, res) => {
+  res.json(db.getRuleMemePool(req.params.id));
+});
+
+app.post('/api/rules/:id/meme-pool', (req, res) => {
+  try {
+    db.addMemeToRulePool(req.params.id, req.body.meme_id);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/rules/:ruleId/meme-pool/:memeId', (req, res) => {
+  db.removeMemeFromRulePool(req.params.ruleId, req.params.memeId);
+  res.json({ ok: true });
 });
 
 // Health

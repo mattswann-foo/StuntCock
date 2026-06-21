@@ -27,7 +27,14 @@
     "plugins": [
       "expo-secure-store",
       "expo-web-browser",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "StuntCock accesses your photos to generate memes.",
+          "cameraPermission": "StuntCock uses your camera to take a photo for meme generation."
+        }
+      ]
     ],
     "extra": {
       "eas": {

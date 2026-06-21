@@ -2,12 +2,14 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { API, getAuthHeaders } from '../lib/utils.js';
 import { PersonaModal } from './Personas.jsx';
+import MediaPool from './MediaPool.jsx';
 
 const EMPTY_RULE = {
   name: '', active: true, trigger_type: 'contains', trigger_value: '',
   sender_filter: 'all', response_type: 'static', response_text: '',
   schedule_start: '', schedule_end: '', schedule_days: '', cooldown_minutes: 0,
   rule_llm_prompt: '', rule_gif_enabled: '', rule_gif_frequency: '', persona_id: null, platform_filter: 'any',
+  media_pool_enabled: '', media_pool_frequency: '', media_pool_type: 'any',
 };
 
 // ---- shared style tokens ----
@@ -237,14 +239,21 @@ function RuleModal({ rule, onSave, onClose }) {
               <option value="static">Static text</option>
               <option value="template">Template</option>
               <option value="llm">♥ LLM (Claude)</option>
+              <option value="meme">🎭 Random meme</option>
             </Select>
             <Input label="Cooldown (minutes)" type="number" min="0"
               value={form.cooldown_minutes} onChange={e => set('cooldown_minutes', parseInt(e.target.value) || 0)} />
           </div>
 
-          {form.response_type !== 'llm' && (
+          {form.response_type !== 'llm' && form.response_type !== 'meme' && (
             <Textarea label="Response text" rows={3} value={form.response_text} onChange={e => set('response_text', e.target.value)}
               placeholder={form.response_type === 'template' ? 'Hi {sender_name}, reply at {time}.' : 'Type your reply…'} />
+          )}
+
+          {form.response_type === 'meme' && (
+            <div style={{ background: 'rgba(114,9,183,0.1)', border: '1px solid rgba(114,9,183,0.3)', borderRadius: 12, padding: '12px 14px', fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
+              🎭 A random meme from your Meme Library will be sent when this rule fires. Generate memes in the <strong style={{ color: 'white' }}>Meme Tools</strong> tab first.
+            </div>
           )}
 
           {form.response_type === 'llm' && (
@@ -341,6 +350,17 @@ function RuleModal({ rule, onSave, onClose }) {
 
           <Input label="Active days (0=Sun…6=Sat, comma-sep, blank=all)" value={form.schedule_days}
             onChange={e => set('schedule_days', e.target.value)} placeholder="1,2,3,4,5 for weekdays" />
+
+          {/* Media Pool */}
+          <div style={{
+            background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)',
+            borderRadius: 14, padding: '14px 16px',
+          }}>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 12 }}>
+              Media Pool
+            </div>
+            <MediaPool ruleId={form.id || null} personaId={form.persona_id} form={form} set={set} />
+          </div>
 
           <label className="flex items-center gap-2.5 cursor-pointer">
             <div className={`relative w-10 h-5.5 rounded-full transition-colors ${form.active ? '' : ''}`}
