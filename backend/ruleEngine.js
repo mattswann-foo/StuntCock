@@ -86,14 +86,31 @@ function matchesSender(rule, sender, groupId) {
 }
 
 /**
+ * Returns the effective cooldown in minutes for a rule.
+ * Uses rule.cooldown_minutes if explicitly set (> 0); otherwise falls back
+ * to the global_cooldown_minutes setting. Returns 0 if neither is set.
+ *
+ * @param {object} rule - A rule object from the database.
+ * @returns {number} Effective cooldown in minutes.
+ */
+function getEffectiveCooldown(rule) {
+  if (rule.cooldown_minutes && rule.cooldown_minutes > 0) {
+    return rule.cooldown_minutes;
+  }
+  const globalCooldown = parseInt(getSetting('global_cooldown_minutes', '0'), 10);
+  return isNaN(globalCooldown) ? 0 : globalCooldown;
+}
+
+/**
  * Checks if a cooldown is blocking this rule from firing for this sender.
  */
 function isCooledDown(rule, sender) {
-  if (!rule.cooldown_minutes || rule.cooldown_minutes <= 0) return false;
+  const effectiveCooldown = getEffectiveCooldown(rule);
+  if (effectiveCooldown <= 0) return false;
   const lastFired = getCooldownLastFired(rule.id, sender);
   if (!lastFired) return false;
   const elapsedMinutes = (Date.now() - lastFired.getTime()) / 60000;
-  return elapsedMinutes < rule.cooldown_minutes;
+  return elapsedMinutes < effectiveCooldown;
 }
 
 /**
@@ -129,7 +146,7 @@ function matchMessage(message) {
     if (isCooledDown(rule, sender)) continue;
 
     // Mark cooldown
-    if (rule.cooldown_minutes > 0) {
+    if (getEffectiveCooldown(rule) > 0) {
       setCooldownLastFired(rule.id, sender);
     }
 
@@ -148,4 +165,4 @@ function matchMessage(message) {
   return null;
 }
 
-module.exports = { matchMessage, isSelfMessage };
+module.exports = { matchMessage, isSelfMessage, getEffectiveCooldown, isCooledDown };
