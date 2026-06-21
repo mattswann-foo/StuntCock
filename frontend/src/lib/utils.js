@@ -16,8 +16,8 @@ export function formatDate(ts) {
   return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export const API = 'http://localhost:3001';
-export const WS_URL = 'ws://localhost:3001';
+export const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
 
 /**
  * Returns auth headers for fetch calls.

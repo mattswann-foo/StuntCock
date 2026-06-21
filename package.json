@@ -8,7 +8,9 @@
     "frontend": "cd frontend && npm run dev",
     "preflight": "node scripts/preflight.js",
     "seed": "node scripts/seed.js",
-    "install:all": "npm install && cd frontend && npm install"
+    "install:all": "npm install && cd frontend && npm install",
+    "build": "cd frontend && npm run build",
+    "deploy": "npm run build && firebase deploy --only hosting"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
