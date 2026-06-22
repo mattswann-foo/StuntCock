@@ -31,7 +31,7 @@ const NAV = [
   )},
 ];
 
-export default function Sidebar({ page, setPage, signalStatus, whatsappStatus, stats }) {
+export default function Sidebar({ page, setPage, signalStatus, whatsappStatus, stats, user, onSignOut }) {
   const isOnline = signalStatus?.running;
   const waOnline = whatsappStatus?.running || whatsappStatus?.authenticated;
 
@@ -119,6 +119,30 @@ export default function Sidebar({ page, setPage, signalStatus, whatsappStatus, s
           ))}
         </div>
       </div>
+
+      {/* Signed-in user + sign-out */}
+      {user && (
+        <div className="px-5 pb-5" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+          {(user.displayName || user.email) && (
+            <p className="text-xs truncate mb-2" style={{ color: 'rgba(255,255,255,0.35)' }} title={user.email}>
+              {user.displayName || user.email}
+            </p>
+          )}
+          <button
+            onClick={onSignOut}
+            className="w-full text-xs font-medium py-1.5 px-3 rounded-lg transition-colors text-left"
+            style={{
+              color: 'rgba(255,255,255,0.4)',
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.07)',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+          >
+            Sign out
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
