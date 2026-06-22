@@ -1,0 +1,50 @@
+# fly.toml — Fly.io deployment config for StuntCock backend
+# Deploy with: fly deploy
+# First-time setup:
+#   fly apps create stuntcock
+#   fly volumes create stuntcock_data --size 5 --region <your-region>
+#   fly secrets set ANTHROPIC_API_KEY=sk-ant-... \
+#                   SIGNAL_PHONE_NUMBER=+15550001234 \
+#                   FIREBASE_PROJECT_ID=stuntcock \
+#                   CORS_ORIGIN=https://your-frontend.web.app
+
+app = "stuntcock"
+primary_region = "syd"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # Non-secret runtime configuration — values available inside the container.
+  # Secrets (API keys, phone numbers, etc.) must be set via:
+  #   fly secrets set KEY=value
+  PORT              = "3001"
+  NODE_ENV          = "production"
+  SIGNAL_CLI_PATH   = "/usr/local/bin/signal-cli"
+  # The Fly.io CORS_ORIGIN and FIREBASE_PROJECT_ID values are supplied at
+  # deploy time via `fly secrets set`; list them here so fly deploy validates
+  # their presence without embedding the actual values.
+  FIREBASE_PROJECT_ID = ""
+  CORS_ORIGIN         = ""
+
+[http_service]
+  internal_port       = 3001
+  force_https         = true
+  auto_stop_machines  = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes           = ["app"]
+
+  [http_service.concurrency]
+    type       = "connections"
+    hard_limit = 100
+    soft_limit = 80
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "512mb"
+
+[[mounts]]
+  source      = "stuntcock_data"
+  destination = "/data"
+  initial_size = "5gb"
