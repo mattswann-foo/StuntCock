@@ -1,0 +1,35 @@
+# Dependencies (installed during build)
+node_modules/
+frontend/node_modules/
+mobile/node_modules/
+
+# Environment files — never bake secrets into the image
+.env
+.env.local
+.env.*.local
+
+# Database and session data — live on the persistent volume at runtime
+data/
+
+# Frontend build artefacts (rebuilt in Stage 1 of the Dockerfile)
+frontend/dist/
+
+# Mobile app — not part of the backend image
+mobile/
+
+# Git history and CI config
+.git/
+.gitignore
+
+# Editor / IDE
+.vscode/
+.idea/
+.claude/
+
+# OS clutter
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
