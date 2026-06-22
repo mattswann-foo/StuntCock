@@ -10,7 +10,9 @@ import Personas from './components/Personas.jsx';
 import CrashBanner from './components/CrashBanner.jsx';
 import { ToastProvider, useToast } from './components/Toast.jsx';
 import { useWebSocket } from './hooks/useWebSocket.js';
-import { API, getAuthHeaders } from './lib/utils.js';
+import { API, getAuthHeadersAsync } from './lib/utils.js';
+import { useAuth } from './context/AuthContext.jsx';
+import { signOut } from './lib/firebase.js';
 
 const PAGE_TITLES = {
   feed:      'Message Feed',
@@ -29,23 +31,28 @@ function AppInner() {
   const [crashMessage, setCrashMessage] = useState('');
   const [liveMessages, setLiveMessages] = useState([]);
   const toast = useToast();
+  const { user } = useAuth();
 
   useEffect(() => {
-    Promise.all([
-      fetch(`${API}/api/settings`, { headers: { ...getAuthHeaders() } }).then(r => r.json()).catch(() => ({})),
-      fetch(`${API}/api/signal/status`, { headers: { ...getAuthHeaders() } }).then(r => r.json()).catch(() => ({ running: false })),
-      fetch(`${API}/api/whatsapp/status`, { headers: { ...getAuthHeaders() } }).then(r => r.json()).catch(() => ({ running: false })),
-      fetch(`${API}/api/analytics`, { headers: { ...getAuthHeaders() } }).then(r => r.json()).catch(() => ({})),
-    ]).then(([settings, signalSt, waSt, analytics]) => {
-      setSetupDone(settings.setup_complete === 'true');
-      setSignalStatus(signalSt);
-      setWhatsappStatus(waSt);
-      setStats({
-        total: analytics.today?.total ?? 0,
-        replied: analytics.today?.replied ?? 0,
-        activeRules: analytics.activeRules ?? 0,
+    async function loadInitial() {
+      const headers = await getAuthHeadersAsync();
+      Promise.all([
+        fetch(`${API}/api/settings`,         { headers }).then(r => r.json()).catch(() => ({})),
+        fetch(`${API}/api/signal/status`,    { headers }).then(r => r.json()).catch(() => ({ running: false })),
+        fetch(`${API}/api/whatsapp/status`,  { headers }).then(r => r.json()).catch(() => ({ running: false })),
+        fetch(`${API}/api/analytics`,        { headers }).then(r => r.json()).catch(() => ({})),
+      ]).then(([settings, signalSt, waSt, analytics]) => {
+        setSetupDone(settings.setup_complete === 'true');
+        setSignalStatus(signalSt);
+        setWhatsappStatus(waSt);
+        setStats({
+          total:       analytics.today?.total      ?? 0,
+          replied:     analytics.today?.replied     ?? 0,
+          activeRules: analytics.activeRules        ?? 0,
+        });
       });
-    });
+    }
+    loadInitial();
   }, []);
 
   useWebSocket((event, data) => {
@@ -53,7 +60,7 @@ function AppInner() {
       setLiveMessages(prev => [...prev, data]);
       setStats(s => ({
         ...s,
-        total: (s.total || 0) + 1,
+        total:   (s.total || 0) + 1,
         replied: data.response_type !== 'none' ? (s.replied || 0) + 1 : (s.replied || 0),
       }));
     } else if (event === 'signal_status') {
@@ -88,7 +95,15 @@ function AppInner() {
     <div className="flex h-screen overflow-hidden" style={{
       background: 'linear-gradient(135deg, #0B1535 0%, #172255 50%, #0E1C48 100%)',
     }}>
-      <Sidebar page={page} setPage={setPage} signalStatus={signalStatus} whatsappStatus={whatsappStatus} stats={stats} />
+      <Sidebar
+        page={page}
+        setPage={setPage}
+        signalStatus={signalStatus}
+        whatsappStatus={whatsappStatus}
+        stats={stats}
+        user={user}
+        onSignOut={signOut}
+      />
 
       <main className="flex-1 flex flex-col min-w-0">
         {crashMessage && <CrashBanner message={crashMessage} onDismiss={() => setCrashMessage('')} />}

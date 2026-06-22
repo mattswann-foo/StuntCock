@@ -1,6 +1,6 @@
 // StuntCock — Settings panel
 import React, { useEffect, useState } from 'react';
-import { API, getAuthHeaders } from '../lib/utils.js';
+import { API, getAuthHeadersAsync } from '../lib/utils.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 
 const TIMEZONES = [
