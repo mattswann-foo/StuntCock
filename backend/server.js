@@ -15,6 +15,7 @@ const { fetchGifPath } = require('./gifClient');
 const fs = require('fs');
 const signalClient = require('./signalClient');
 const whatsappClient = require('./whatsappClient');
+const { verifyFirebaseToken } = require('./auth');
 
 const app = express();
 const server = http.createServer(app);
@@ -22,8 +23,33 @@ const wss = new WebSocket.Server({ server });
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
+// --- CORS ---
+// Allow CORS_ORIGIN env var; fall back to http://localhost:5173 for dev.
+const ALLOWED_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
+
+app.use(require('cors')({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. server-to-server, curl).
+    if (!origin) return callback(null, true);
+    if (origin === ALLOWED_ORIGIN) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  optionsSuccessStatus: 200,
+}));
+
+// Return 403 (not 500) for disallowed CORS origins.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (err && err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ error: 'CORS_FORBIDDEN' });
+  }
+  next(err);
+});
+
 app.use(express.json());
-app.use(require('cors')({ origin: /^http:\/\/localhost:\d+$/ }));
+
+// Apply Firebase token verification to all /api/* routes.
+app.use('/api', verifyFirebaseToken);
 
 // --- WebSocket broadcast ---
 
