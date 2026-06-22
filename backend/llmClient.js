@@ -78,4 +78,4 @@ async function generateLLMReply({ sender, body, groupId, systemPromptOverride, p
   return reply;
 }
 
-module.exports = { generateLLMReply, resetClient };
+module.exports = { generateLLMReply, resetClient, truncateAtSentence };
