@@ -15,6 +15,8 @@ const { fetchGifPath } = require('./gifClient');
 const fs = require('fs');
 const signalClient = require('./signalClient');
 const whatsappClient = require('./whatsappClient');
+const signalDaemonManager = require('./signalDaemonManager');
+const { requireUserId } = require('./authMiddleware');
 
 const app = express();
 const server = http.createServer(app);
@@ -268,9 +270,9 @@ app.get('/api/analytics', (req, res) => {
   });
 });
 
-// Signal status
-app.get('/api/signal/status', (req, res) => {
-  res.json({ ...signalClient.getStatus(), enabled: db.getSetting('signal_enabled', 'true') !== 'false' });
+// Signal status — per-user (requires Bearer token → req.userId)
+app.get('/api/signal/status', requireUserId, (req, res) => {
+  res.json(signalDaemonManager.getStatus(req.userId));
 });
 
 app.post('/api/signal/enable', (req, res) => {
@@ -304,17 +306,16 @@ app.post('/api/whatsapp/disable', (req, res) => {
   res.json({ ok: true });
 });
 
-// Signal registration
-app.post('/api/signal/register', async (req, res) => {
-  const { phoneNumber, captcha } = req.body;
-  if (!phoneNumber) return res.status(400).json({ error: 'phoneNumber required' });
-  try {
-    await signalClient.register(phoneNumber, captcha);
-    db.setSetting('phone_number', phoneNumber);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+// Signal registration — per-user daemon spawn (requires Bearer token → req.userId)
+app.post('/api/signal/register', requireUserId, (req, res) => {
+  const spawned = signalDaemonManager.start(req.userId);
+  res.json({ ok: true, spawned });
+});
+
+// Signal stop — per-user (requires Bearer token → req.userId)
+app.post('/api/signal/stop', requireUserId, (req, res) => {
+  signalDaemonManager.stop(req.userId);
+  res.json({ ok: true });
 });
 
 app.post('/api/signal/verify', async (req, res) => {
