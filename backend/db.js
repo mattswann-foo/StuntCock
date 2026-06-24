@@ -30,6 +30,9 @@ try { db.exec(`ALTER TABLE personas ADD COLUMN group_tagline TEXT`); } catch (_)
 try { db.exec(`ALTER TABLE personas ADD COLUMN tagline TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE personas ADD COLUMN full_description TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE personas ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+// User-scoping columns (idempotent — existing rows get user_id = NULL)
+try { db.exec(`ALTER TABLE rules ADD COLUMN user_id TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE message_log ADD COLUMN user_id TEXT`); } catch (_) {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS personas (
@@ -111,22 +114,28 @@ function getAllSettings() {
 
 // --- Rules helpers ---
 
-function getRules() {
+function getRules(userId) {
+  if (userId != null) {
+    return db.prepare('SELECT * FROM rules WHERE user_id = ? ORDER BY priority ASC, id ASC').all(userId);
+  }
   return db.prepare('SELECT * FROM rules ORDER BY priority ASC, id ASC').all();
 }
 
-function getRule(id) {
+function getRule(id, userId) {
+  if (userId != null) {
+    return db.prepare('SELECT * FROM rules WHERE id = ? AND user_id = ?').get(id, userId);
+  }
   return db.prepare('SELECT * FROM rules WHERE id = ?').get(id);
 }
 
-function createRule(rule) {
+function createRule(rule, userId) {
   const stmt = db.prepare(`
     INSERT INTO rules (name, active, priority, trigger_type, trigger_value, sender_filter,
       response_type, response_text, schedule_start, schedule_end, schedule_days, cooldown_minutes,
-      rule_llm_prompt, rule_gif_enabled, rule_gif_frequency, persona_id, platform_filter)
+      rule_llm_prompt, rule_gif_enabled, rule_gif_frequency, persona_id, platform_filter, user_id)
     VALUES (@name, @active, @priority, @trigger_type, @trigger_value, @sender_filter,
       @response_type, @response_text, @schedule_start, @schedule_end, @schedule_days, @cooldown_minutes,
-      @rule_llm_prompt, @rule_gif_enabled, @rule_gif_frequency, @persona_id, @platform_filter)
+      @rule_llm_prompt, @rule_gif_enabled, @rule_gif_frequency, @persona_id, @platform_filter, @user_id)
   `);
   const info = stmt.run({
     name: rule.name,
@@ -146,12 +155,13 @@ function createRule(rule) {
     rule_gif_frequency: rule.rule_gif_frequency ?? null,
     persona_id: rule.persona_id ?? null,
     platform_filter: rule.platform_filter ?? 'any',
+    user_id: userId ?? null,
   });
   return getRule(info.lastInsertRowid);
 }
 
-function updateRule(id, updates) {
-  const existing = getRule(id);
+function updateRule(id, updates, userId) {
+  const existing = getRule(id, userId);
   if (!existing) return null;
   const merged = { ...existing, ...updates, updated_at: new Date().toISOString() };
   db.prepare(`
@@ -166,8 +176,16 @@ function updateRule(id, updates) {
   return getRule(id);
 }
 
-function deleteRule(id) {
+function deleteRule(id, userId) {
+  if (userId != null) {
+    // Verify ownership before delete
+    const existing = getRule(id, userId);
+    if (!existing) return false;
+    db.prepare('DELETE FROM rules WHERE id = ? AND user_id = ?').run(id, userId);
+    return true;
+  }
   db.prepare('DELETE FROM rules WHERE id = ?').run(id);
+  return true;
 }
 
 function reorderRules(orderedIds) {
@@ -182,8 +200,8 @@ function reorderRules(orderedIds) {
 
 function logMessage(entry) {
   db.prepare(`
-    INSERT INTO message_log (platform, sender, sender_name, group_id, message_body, matched_rule_id, response_sent, response_type)
-    VALUES (@platform, @sender, @sender_name, @group_id, @message_body, @matched_rule_id, @response_sent, @response_type)
+    INSERT INTO message_log (platform, sender, sender_name, group_id, message_body, matched_rule_id, response_sent, response_type, user_id)
+    VALUES (@platform, @sender, @sender_name, @group_id, @message_body, @matched_rule_id, @response_sent, @response_type, @user_id)
   `).run({
     platform: entry.platform ?? 'signal',
     sender: entry.sender,
@@ -193,6 +211,7 @@ function logMessage(entry) {
     matched_rule_id: entry.matched_rule_id ?? null,
     response_sent: entry.response_sent ?? null,
     response_type: entry.response_type ?? 'none',
+    user_id: entry.user_id ?? null,
   });
 }
 
@@ -214,7 +233,17 @@ function getContacts() {
   }));
 }
 
-function getRecentMessages(limit = 50) {
+function getRecentMessages(limit = 50, userId) {
+  if (userId != null) {
+    return db.prepare(`
+      SELECT ml.*, r.name as rule_name
+      FROM message_log ml
+      LEFT JOIN rules r ON ml.matched_rule_id = r.id
+      WHERE ml.user_id = ?
+      ORDER BY ml.timestamp DESC
+      LIMIT ?
+    `).all(userId, limit);
+  }
   return db.prepare(`
     SELECT ml.*, r.name as rule_name
     FROM message_log ml
@@ -224,7 +253,22 @@ function getRecentMessages(limit = 50) {
   `).all(limit);
 }
 
-function getAnalytics(days = 7) {
+function getAnalytics(days = 7, userId) {
+  if (userId != null) {
+    return db.prepare(`
+      SELECT
+        date(timestamp) as day,
+        COUNT(*) as total,
+        SUM(CASE WHEN response_type != 'none' THEN 1 ELSE 0 END) as replied,
+        SUM(CASE WHEN response_type = 'llm' THEN 1 ELSE 0 END) as llm_triggered,
+        SUM(CASE WHEN response_type = 'none' THEN 1 ELSE 0 END) as unmatched
+      FROM message_log
+      WHERE timestamp >= datetime('now', '-' || ? || ' days')
+        AND user_id = ?
+      GROUP BY day
+      ORDER BY day ASC
+    `).all(days, userId);
+  }
   return db.prepare(`
     SELECT
       date(timestamp) as day,
@@ -239,7 +283,17 @@ function getAnalytics(days = 7) {
   `).all(days);
 }
 
-function getTodayStats() {
+function getTodayStats(userId) {
+  if (userId != null) {
+    return db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN response_type != 'none' THEN 1 ELSE 0 END) as replied
+      FROM message_log
+      WHERE date(timestamp) = date('now')
+        AND user_id = ?
+    `).get(userId);
+  }
   return db.prepare(`
     SELECT
       COUNT(*) as total,

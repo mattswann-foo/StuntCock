@@ -10,7 +10,8 @@
     "seed": "node scripts/seed.js",
     "install:all": "npm install && cd frontend && npm install",
     "build": "cd frontend && npm run build",
-    "deploy": "npm run build && firebase deploy --only hosting"
+    "deploy": "npm run build && firebase deploy --only hosting",
+    "test": "node --test backend/__tests__/user-scoping.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
@@ -26,5 +27,6 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "devDependencies": {}
 }
