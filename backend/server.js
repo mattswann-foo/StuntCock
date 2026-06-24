@@ -23,7 +23,13 @@ const wss = new WebSocket.Server({ server });
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
 app.use(express.json());
-app.use(require('cors')({ origin: /^http:\/\/localhost:\d+$/ }));
+// CORS_ORIGIN env var lets production deployments (e.g. Fly.io) specify the
+// allowed origin explicitly (e.g. https://stuntcock.web.app).
+// Falls back to allowing any localhost port for local development.
+const corsOrigin = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+  : /^http:\/\/localhost:\d+$/;
+app.use(require('cors')({ origin: corsOrigin }));
 
 // --- WebSocket broadcast ---
 

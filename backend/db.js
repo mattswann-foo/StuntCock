@@ -5,7 +5,10 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-const DB_DIR = path.join(__dirname, '..', 'data');
+// DATA_DIR env var lets Fly.io deployments point the database at a persistent
+// volume (e.g. DATA_DIR=/data). Falls back to the repo-local ./data directory
+// for local development.
+const DB_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 
 const db = new Database(path.join(DB_DIR, 'stuntcock.db'));
