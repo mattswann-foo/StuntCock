@@ -15,7 +15,12 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "testMatch": ["**/backend/__tests__/**/*.test.js"]
+    "testMatch": [
+      "**/backend/__tests__/**/*.test.js"
+    ],
+    "modulePaths": [
+      "/tmp/jest-standalone/node_modules"
+    ]
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
