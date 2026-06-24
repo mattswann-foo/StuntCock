@@ -1,6 +1,6 @@
 // StuntCock — Live message feed, updated via WebSocket
 import React, { useEffect, useRef, useState } from 'react';
-import { API, formatTime, formatDate } from '../lib/utils.js';
+import { API, formatTime, formatDate, getAuthHeaders } from '../lib/utils.js';
 
 function ResponseBadge({ type, ruleName }) {
   if (type === 'llm') return (
@@ -44,7 +44,7 @@ export default function MessageFeed({ liveMessages }) {
   const bottomRef = useRef(null);
 
   useEffect(() => {
-    fetch(`${API}/api/messages?limit=50`)
+    fetch(`${API}/api/messages?limit=50`, { headers: { ...getAuthHeaders() } })
       .then(r => r.json())
       .then(data => setMessages(data.reverse()))
       .catch(() => {});

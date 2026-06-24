@@ -21,14 +21,14 @@ export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
 
 /**
  * Returns auth headers for fetch calls.
- * Reads `stuntcock_api_token` from localStorage; returns the header when
- * a non-empty value is stored, or an empty object when absent.
- * @returns {{ 'X-StuntCock-Token': string } | {}}
+ * Reads `stuntcock_api_token` from localStorage; returns the X-API-Token header
+ * when a non-empty value is stored, or an empty object when absent.
+ * @returns {{ 'X-API-Token': string } | {}}
  */
 export function getAuthHeaders() {
   const token = localStorage.getItem('stuntcock_api_token');
   if (token && token.trim() !== '') {
-    return { 'X-StuntCock-Token': token };
+    return { 'X-API-Token': token };
   }
   return {};
 }
