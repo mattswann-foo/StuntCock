@@ -1,0 +1,39 @@
+# StuntCock — Docker build exclusions
+
+# Local data (SQLite DB lives on the Fly volume at /data, not in the image)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Frontend source (only the built dist/ is needed in the image)
+frontend/node_modules/
+frontend/src/
+frontend/public/
+frontend/postcss.config.js
+frontend/tailwind.config.js
+frontend/vite.config.js
+frontend/package-lock.json
+
+# Root-level node_modules (copied freshly in Dockerfile via npm ci)
+node_modules/
+
+# Environment secrets
+.env
+.env.*
+
+# Git / editor / CI artefacts
+.git/
+.github/
+.claude/
+*.md
+*.jpg
+*.png
+
+# Firebase (frontend is hosted there separately)
+.firebaseignore
+.firebaserc
+firebase.json
+
+# Mobile app (not part of the Fly deployment)
+mobile/
