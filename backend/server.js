@@ -15,6 +15,7 @@ const { fetchGifPath } = require('./gifClient');
 const fs = require('fs');
 const signalClient = require('./signalClient');
 const whatsappClient = require('./whatsappClient');
+const whatsappManager = require('./whatsappManager');
 
 const app = express();
 const server = http.createServer(app);
@@ -24,6 +25,27 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 
 app.use(express.json());
 app.use(require('cors')({ origin: /^http:\/\/localhost:\d+$/ }));
+
+// --- Auth / userId helpers ---
+
+/**
+ * Extract the caller's userId from request headers.
+ * Accepts:
+ *   X-StuntCock-Token: <token>
+ *   Authorization: Bearer <token>
+ * The raw token value is used directly as the userId key.
+ * Returns null when no token is present.
+ */
+function userIdFromRequest(req) {
+  const header = req.headers['x-stuntcock-token'];
+  if (header && header.trim()) return header.trim();
+  const auth = req.headers['authorization'];
+  if (auth && auth.startsWith('Bearer ')) {
+    const tok = auth.slice(7).trim();
+    if (tok) return tok;
+  }
+  return null;
+}
 
 // --- WebSocket broadcast ---
 
@@ -287,9 +309,38 @@ app.post('/api/signal/disable', (req, res) => {
   res.json({ ok: true });
 });
 
-// WhatsApp status + control
+// WhatsApp status + control (legacy global client)
 app.get('/api/whatsapp/status', (req, res) => {
+  // If a userId token is present, return per-user session status
+  const userId = userIdFromRequest(req);
+  if (userId) {
+    try {
+      return res.json(whatsappManager.getStatus(userId));
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
+    }
+  }
+  // Fallback: global Baileys-based client status
   res.json(whatsappClient.getStatus());
+});
+
+// Per-user WhatsApp session start (whatsapp-web.js / Puppeteer)
+// POST /api/whatsapp/start  — requires X-StuntCock-Token or Authorization: Bearer <token>
+// Initialises (or returns existing) session for the token holder.
+// Session data is stored under /data/{userId}/whatsapp/.
+// Returns { connected, qrDataUrl } — qrDataUrl is non-null when a QR scan is needed.
+app.post('/api/whatsapp/start', async (req, res) => {
+  const userId = userIdFromRequest(req);
+  if (!userId) {
+    return res.status(401).json({ error: 'Authentication token required (X-StuntCock-Token or Authorization: Bearer <token>)' });
+  }
+  try {
+    const result = await whatsappManager.startSession(userId);
+    res.json(result);
+  } catch (e) {
+    console.error('[StuntCock/WA] startSession error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/whatsapp/enable', (req, res) => {
