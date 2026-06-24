@@ -4,6 +4,10 @@
 
 const { getRules, getCooldownLastFired, setCooldownLastFired, getSetting } = require('./db');
 const { isScheduleActive } = require('./scheduler');
+const vm = require('vm');
+
+// Maximum milliseconds allowed for a regex match (ReDoS guard)
+const REGEX_TIMEOUT_MS = 150;
 
 /**
  * Returns true if the message sender is the registered StuntCock number.
@@ -39,7 +43,13 @@ function matchesTrigger(rule, messageBody) {
     }
     case 'regex': {
       try {
-        return new RegExp(value, 'i').test(body);
+        // ReDoS guard: run the regex inside a vm context with a hard timeout.
+        // If the pattern causes catastrophic backtracking, vm throws and we
+        // return false rather than hanging the event loop.
+        const re = new RegExp(value, 'i');
+        const sandbox = vm.createContext({ re, body, result: false });
+        new vm.Script('result = re.test(body);').runInContext(sandbox, { timeout: REGEX_TIMEOUT_MS });
+        return sandbox.result;
       } catch {
         return false;
       }
@@ -148,4 +158,4 @@ function matchMessage(message) {
   return null;
 }
 
-module.exports = { matchMessage, isSelfMessage };
+module.exports = { matchMessage, isSelfMessage, matchesTrigger };
