@@ -10,7 +10,17 @@
     "seed": "node scripts/seed.js",
     "install:all": "npm install && cd frontend && npm install",
     "build": "cd frontend && npm run build",
-    "deploy": "npm run build && firebase deploy --only hosting"
+    "deploy": "npm run build && firebase deploy --only hosting",
+    "test": "/tmp/jest-standalone/node_modules/.bin/jest --testPathPatterns=backend/__tests__ --forceExit"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/backend/__tests__/**/*.test.js"
+    ],
+    "modulePaths": [
+      "/tmp/jest-standalone/node_modules"
+    ]
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
@@ -26,5 +36,9 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2",
+    "supertest": "^7.2.2"
   }
 }
