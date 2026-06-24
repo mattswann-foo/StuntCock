@@ -25,6 +25,14 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 app.use(express.json());
 app.use(require('cors')({ origin: /^http:\/\/localhost:\d+$/ }));
 
+// --- userId extraction middleware ---
+// Reads x-user-id header and attaches it to req.userId.
+// Routes that are user-scoped use this value to filter DB queries.
+app.use((req, _res, next) => {
+  req.userId = req.headers['x-user-id'] || null;
+  next();
+});
+
 // --- WebSocket broadcast ---
 
 function broadcast(event, data) {
@@ -226,22 +234,23 @@ app.put('/api/contacts/:sender/name', (req, res) => {
 });
 
 app.get('/api/rules', (req, res) => {
-  res.json(db.getRules());
+  res.json(db.getRules(req.userId));
 });
 
 app.post('/api/rules', (req, res) => {
-  const rule = db.createRule(req.body);
+  const rule = db.createRule(req.body, req.userId);
   res.json(rule);
 });
 
 app.put('/api/rules/:id', (req, res) => {
-  const rule = db.updateRule(parseInt(req.params.id), req.body);
+  const rule = db.updateRule(parseInt(req.params.id), req.body, req.userId);
   if (!rule) return res.status(404).json({ error: 'not found' });
   res.json(rule);
 });
 
 app.delete('/api/rules/:id', (req, res) => {
-  db.deleteRule(parseInt(req.params.id));
+  const deleted = db.deleteRule(parseInt(req.params.id), req.userId);
+  if (!deleted) return res.status(404).json({ error: 'not found' });
   res.json({ ok: true });
 });
 
@@ -255,16 +264,22 @@ app.post('/api/rules/reorder', (req, res) => {
 // Message feed
 app.get('/api/messages', (req, res) => {
   const limit = parseInt(req.query.limit || '50');
-  res.json(db.getRecentMessages(limit));
+  res.json(db.getRecentMessages(limit, req.userId));
+});
+
+// Logs alias (same data as /api/messages, user-scoped)
+app.get('/api/logs', (req, res) => {
+  const limit = parseInt(req.query.limit || '50');
+  res.json(db.getRecentMessages(limit, req.userId));
 });
 
 // Analytics
 app.get('/api/analytics', (req, res) => {
   const days = parseInt(req.query.days || '7');
   res.json({
-    daily: db.getAnalytics(days),
-    today: db.getTodayStats(),
-    activeRules: db.getRules().filter(r => r.active).length,
+    daily: db.getAnalytics(days, req.userId),
+    today: db.getTodayStats(req.userId),
+    activeRules: db.getRules(req.userId).filter(r => r.active).length,
   });
 });
 
