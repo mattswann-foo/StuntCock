@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 
 // Import the module under test (no GCP credentials needed — all client creation is lazy)
 process.env.GCLOUD_PROJECT = ''; // ensure GCP clients are not created during tests
-const { redact, PII_KEYS, requestLogger, errorReporter, extractTraceContext } = require('./observability');
+const { redact, PII_KEYS, requestLogger, errorReporter, extractTraceContext, extractUserId, withTraceSpan } = require('./observability');
 
 // ---------------------------------------------------------------------------
 // redact() — PII removal
@@ -168,4 +168,74 @@ test('PII_KEYS includes all required sensitive field names', () => {
   for (const key of required) {
     assert.ok(PII_KEYS.has(key), `PII_KEYS must include '${key}'`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// extractUserId
+// ---------------------------------------------------------------------------
+
+test('extractUserId: returns uid from req.user.uid', () => {
+  const req = { headers: {}, user: { uid: 'user-abc-123' } };
+  assert.strictEqual(extractUserId(req), 'user-abc-123');
+});
+
+test('extractUserId: falls back to x-forwarded-user header', () => {
+  const req = { headers: { 'x-forwarded-user': 'hdr-user-456' }, user: null };
+  assert.strictEqual(extractUserId(req), 'hdr-user-456');
+});
+
+test('extractUserId: returns anonymous when no user context', () => {
+  const req = { headers: {}, user: null };
+  assert.strictEqual(extractUserId(req), 'anonymous');
+});
+
+// ---------------------------------------------------------------------------
+// errorReporter middleware
+// ---------------------------------------------------------------------------
+
+test('errorReporter: calls next with the error', (t, done) => {
+  const err = new Error('test error');
+  const req = {
+    headers: {},
+    method: 'GET',
+    path: '/api/test',
+    traceId: 'trace-err-test',
+    user: null,
+  };
+  const res = {};
+  errorReporter(err, req, res, (passedErr) => {
+    assert.strictEqual(passedErr, err, 'errorReporter must call next(err)');
+    done();
+  });
+});
+
+test('errorReporter: works when req has no traceId (extracts from headers)', (t, done) => {
+  const err = new Error('no-trace error');
+  const req = {
+    headers: { 'x-cloud-trace-context': 'trace-xyz/span1;o=1' },
+    method: 'POST',
+    path: '/api/rules',
+    user: null,
+  };
+  const res = {};
+  errorReporter(err, req, res, (passedErr) => {
+    assert.strictEqual(passedErr, err);
+    done();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withTraceSpan
+// ---------------------------------------------------------------------------
+
+test('withTraceSpan: returns result of wrapped fn', async () => {
+  const result = await withTraceSpan('test.span', 'trace-001', async () => 42);
+  assert.strictEqual(result, 42);
+});
+
+test('withTraceSpan: re-throws error from wrapped fn', async () => {
+  await assert.rejects(
+    () => withTraceSpan('test.error.span', 'trace-002', async () => { throw new Error('span failed'); }),
+    { message: 'span failed' }
+  );
 });
