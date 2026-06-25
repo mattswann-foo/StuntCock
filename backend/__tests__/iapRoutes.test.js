@@ -10,14 +10,15 @@ const request = require('supertest');
 
 // ---------------------------------------------------------------------------
 // Mock iapValidator so tests don't touch any DB or external APIs
+// Variable names MUST start with "mock" for Jest's factory scope guard.
 // ---------------------------------------------------------------------------
 
-const validateAndPersistMock = jest.fn();
-const getEntitlementForUserMock = jest.fn();
+const mockValidateAndPersist = jest.fn();
+const mockGetEntitlementForUser = jest.fn();
 
 jest.mock('../iapValidator', () => ({
-  validateAndPersist: validateAndPersistMock,
-  getEntitlementForUser: getEntitlementForUserMock,
+  validateAndPersist: mockValidateAndPersist,
+  getEntitlementForUser: mockGetEntitlementForUser,
   upsertEntitlement: jest.fn(),
   _db: null,
 }));
@@ -118,8 +119,8 @@ describe('POST /api/iap/validate', () => {
 
   beforeEach(() => {
     app = createTestApp();
-    validateAndPersistMock.mockReset();
-    getEntitlementForUserMock.mockReset();
+    mockValidateAndPersist.mockReset();
+    mockGetEntitlementForUser.mockReset();
   });
 
   it('returns 401 when Authorization header is absent', async () => {
@@ -147,7 +148,6 @@ describe('POST /api/iap/validate', () => {
   });
 
   it('returns 401 for a JWT without a sub claim', async () => {
-    const jwt = buildTestJwt({ sub: undefined });
     // Manually build a JWT without sub
     const b64url = (obj) =>
       Buffer.from(JSON.stringify(obj)).toString('base64')
@@ -194,7 +194,7 @@ describe('POST /api/iap/validate', () => {
 
   it('returns 200 with { entitlement, expiresAt } on valid iOS receipt', async () => {
     const expiresAt = new Date(Date.now() + 30 * 86400 * 1000).toISOString();
-    validateAndPersistMock.mockResolvedValueOnce({ entitlement: 'pro', expiresAt });
+    mockValidateAndPersist.mockResolvedValueOnce({ entitlement: 'pro', expiresAt });
 
     const res = await request(app)
       .post('/api/iap/validate')
@@ -203,7 +203,7 @@ describe('POST /api/iap/validate', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ entitlement: 'pro', expiresAt });
-    expect(validateAndPersistMock).toHaveBeenCalledWith({
+    expect(mockValidateAndPersist).toHaveBeenCalledWith({
       platform: 'ios',
       receipt: 'valid-jws',
       productId: 'com.test.pro',
@@ -213,7 +213,7 @@ describe('POST /api/iap/validate', () => {
 
   it('returns 200 with { entitlement, expiresAt } on valid Android receipt', async () => {
     const expiresAt = new Date(Date.now() + 30 * 86400 * 1000).toISOString();
-    validateAndPersistMock.mockResolvedValueOnce({ entitlement: 'pro', expiresAt });
+    mockValidateAndPersist.mockResolvedValueOnce({ entitlement: 'pro', expiresAt });
 
     const res = await request(app)
       .post('/api/iap/validate')
@@ -225,7 +225,7 @@ describe('POST /api/iap/validate', () => {
   });
 
   it('returns 402 when validateAndPersist throws (invalid receipt)', async () => {
-    validateAndPersistMock.mockRejectedValueOnce(new Error('Receipt validation failed'));
+    mockValidateAndPersist.mockRejectedValueOnce(new Error('Receipt validation failed'));
 
     const res = await request(app)
       .post('/api/iap/validate')
@@ -237,7 +237,7 @@ describe('POST /api/iap/validate', () => {
   });
 
   it('does not include the receipt in the 402 error response body', async () => {
-    validateAndPersistMock.mockRejectedValueOnce(new Error('bad'));
+    mockValidateAndPersist.mockRejectedValueOnce(new Error('bad'));
 
     const sensitiveReceipt = 'SUPER_SECRET_RECEIPT_SHOULD_NOT_APPEAR';
     const res = await request(app)
@@ -250,7 +250,7 @@ describe('POST /api/iap/validate', () => {
 
   it('is idempotent: second call with same body returns same data (mock returns same value)', async () => {
     const expiresAt = new Date(Date.now() + 30 * 86400 * 1000).toISOString();
-    validateAndPersistMock.mockResolvedValue({ entitlement: 'pro', expiresAt });
+    mockValidateAndPersist.mockResolvedValue({ entitlement: 'pro', expiresAt });
 
     const body = { platform: 'ios', receipt: 'idem-receipt', productId: 'com.test.pro' };
     const jwt = buildTestJwt({ sub: 'user-idem' });
@@ -261,7 +261,7 @@ describe('POST /api/iap/validate', () => {
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(second.body.expiresAt).toBe(first.body.expiresAt);
-    expect(validateAndPersistMock).toHaveBeenCalledTimes(2);
+    expect(mockValidateAndPersist).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -274,8 +274,8 @@ describe('GET /api/iap/entitlement', () => {
 
   beforeEach(() => {
     app = createTestApp();
-    validateAndPersistMock.mockReset();
-    getEntitlementForUserMock.mockReset();
+    mockValidateAndPersist.mockReset();
+    mockGetEntitlementForUser.mockReset();
   });
 
   it('returns 401 without Authorization header', async () => {
@@ -291,7 +291,7 @@ describe('GET /api/iap/entitlement', () => {
   });
 
   it('returns 404 when user has no entitlement', async () => {
-    getEntitlementForUserMock.mockReturnValueOnce(null);
+    mockGetEntitlementForUser.mockReturnValueOnce(null);
 
     const res = await request(app)
       .get('/api/iap/entitlement')
@@ -299,12 +299,12 @@ describe('GET /api/iap/entitlement', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error).toMatch(/No entitlement found/i);
-    expect(getEntitlementForUserMock).toHaveBeenCalledWith('user-no-ent');
+    expect(mockGetEntitlementForUser).toHaveBeenCalledWith('user-no-ent');
   });
 
   it('returns 200 with { entitlement, expiresAt } when entitlement exists', async () => {
     const expiresAt = new Date(Date.now() + 30 * 86400 * 1000).toISOString();
-    getEntitlementForUserMock.mockReturnValueOnce({ entitlement: 'pro', expiresAt });
+    mockGetEntitlementForUser.mockReturnValueOnce({ entitlement: 'pro', expiresAt });
 
     const res = await request(app)
       .get('/api/iap/entitlement')
@@ -313,6 +313,6 @@ describe('GET /api/iap/entitlement', () => {
     expect(res.status).toBe(200);
     expect(res.body.entitlement).toBe('pro');
     expect(res.body.expiresAt).toBe(expiresAt);
-    expect(getEntitlementForUserMock).toHaveBeenCalledWith('user-has-ent');
+    expect(mockGetEntitlementForUser).toHaveBeenCalledWith('user-has-ent');
   });
 });
