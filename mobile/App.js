@@ -9,6 +9,7 @@ import RulesScreen from './src/screens/RulesScreen';
 import AnalyticsScreen from './src/screens/AnalyticsScreen';
 import PersonasScreen from './src/screens/PersonasScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import SubscriptionScreen from './src/screens/SubscriptionScreen';
 import AuthScreen from './src/screens/AuthScreen';
 import { useAuth } from './src/useAuth';
 
@@ -21,7 +22,7 @@ function TabIcon({ icon, focused }) {
 }
 
 export default function App() {
-  const { user, loading, signIn, signOut } = useAuth();
+  const { user, jwtToken, loading, signIn, signOut } = useAuth();
 
   if (loading) {
     return (
@@ -91,6 +92,16 @@ export default function App() {
             tabBarIcon: ({ focused }) => <TabIcon icon="🎭" focused={focused} />,
           }}
         />
+        <Tab.Screen
+          name="Subscription"
+          options={{
+            title: 'Pro',
+            tabBarLabel: 'Pro',
+            tabBarIcon: ({ focused }) => <TabIcon icon="⭐" focused={focused} />,
+          }}
+        >
+          {() => <SubscriptionScreen user={user} jwtToken={jwtToken} />}
+        </Tab.Screen>
         <Tab.Screen
           name="Settings"
           options={{
