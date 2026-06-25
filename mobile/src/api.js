@@ -58,4 +58,17 @@ export const api = {
 
   // Health
   health: () => req('/api/health'),
+
+  // IAP — In-App Purchase validation & entitlement
+  // These calls require an Authorization: Bearer <jwt> header.
+  validateIAPReceipt: (jwtToken, { platform, receipt, productId }) =>
+    req('/api/iap/validate', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${jwtToken}` },
+      body: { platform, receipt, productId },
+    }),
+  getIAPEntitlement: (jwtToken) =>
+    req('/api/iap/entitlement', {
+      headers: { Authorization: `Bearer ${jwtToken}` },
+    }),
 };

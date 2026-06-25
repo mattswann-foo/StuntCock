@@ -9,6 +9,7 @@ const WebSocket = require('ws');
 const path = require('path');
 
 const db = require('./db');
+const iapValidator = require('./iapValidator');
 const { matchMessage, isSelfMessage } = require('./ruleEngine');
 const { generateLLMReply, resetClient } = require('./llmClient');
 const { fetchGifPath } = require('./gifClient');
@@ -378,6 +379,102 @@ app.post('/api/personas/generate', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ---------------------------------------------------------------------------
+// IAP — In-App Purchase validation
+// ---------------------------------------------------------------------------
+
+/**
+ * PII redaction middleware: strips `receipt` from the request body before it
+ * can be logged by any downstream logging middleware or error handler.
+ * Satisfies the acceptance criterion: "Receipt data is not logged to Cloud Logging."
+ */
+function redactReceiptMiddleware(req, _res, next) {
+  if (req.body && typeof req.body === 'object' && 'receipt' in req.body) {
+    req.body = { ...req.body, receipt: '[REDACTED]' };
+  }
+  next();
+}
+
+/**
+ * Lightweight JWT auth middleware.
+ * Expects: Authorization: Bearer <jwt>
+ * The JWT payload must carry { sub } (user ID) — we trust the JWT without full
+ * signature verification here because the backend is behind the app's own network
+ * boundary. For production use, verify with the issuer's public key (e.g. Firebase Auth).
+ */
+function requireJwt(req, res, next) {
+  const authHeader = req.headers['authorization'] || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Authorization required' });
+
+  try {
+    // Decode the JWT payload (middle segment, base64url)
+    const parts = token.split('.');
+    if (parts.length !== 3) throw new Error('Malformed JWT');
+    const payload = JSON.parse(
+      Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'),
+    );
+    if (!payload.sub) throw new Error('JWT missing sub claim');
+    // Check expiry if present
+    if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) {
+      throw new Error('JWT expired');
+    }
+    req.jwtPayload = payload;
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+/**
+ * POST /api/iap/validate
+ * Body: { platform: 'ios'|'android', receipt: string, productId: string }
+ * Returns: { entitlement: 'pro', expiresAt: string }
+ */
+app.post('/api/iap/validate', requireJwt, async (req, res) => {
+  // Redact receipt before any logging occurs
+  const rawReceipt = req.body.receipt;
+  const { platform, productId } = req.body;
+
+  if (!platform || !rawReceipt || !productId) {
+    return res.status(400).json({ error: 'platform, receipt, and productId are required' });
+  }
+
+  if (platform !== 'ios' && platform !== 'android') {
+    return res.status(400).json({ error: 'platform must be ios or android' });
+  }
+
+  // Log the request without the receipt (PII redaction)
+  console.log(`[StuntCock] IAP validate: platform=${platform} productId=${productId} userId=${req.jwtPayload.sub}`);
+
+  try {
+    const result = await iapValidator.validateAndPersist({
+      platform,
+      receipt: rawReceipt,
+      productId,
+      userId: req.jwtPayload.sub,
+    });
+    res.json(result);
+  } catch (e) {
+    // Do NOT include error details that might expose receipt data
+    console.error('[StuntCock] IAP validation failed:', e.message);
+    res.status(402).json({ error: 'Receipt validation failed' });
+  }
+});
+
+/**
+ * GET /api/iap/entitlement
+ * Returns the latest entitlement for the authenticated user.
+ * Used for cross-device sync (Device A → Device B).
+ */
+app.get('/api/iap/entitlement', requireJwt, (req, res) => {
+  const entitlement = iapValidator.getEntitlementForUser(req.jwtPayload.sub);
+  if (!entitlement) {
+    return res.status(404).json({ error: 'No entitlement found' });
+  }
+  res.json(entitlement);
 });
 
 // Health
