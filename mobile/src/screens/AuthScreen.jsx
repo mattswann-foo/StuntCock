@@ -1,3 +1,4 @@
+// AuthScreen.jsx — Google OAuth + Apple Sign-In UI, Firebase credential exchange
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ActivityIndicator, Platform,
@@ -6,25 +7,30 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
+import * as Crypto from 'expo-crypto';
 
 WebBrowser.maybeCompleteAuthSession();
 
-// ─── Paste your IDs from console.cloud.google.com ────────────────────────────
+// ─── Google OAuth client IDs — injected via EAS environment config ────────────
+// Set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID, and
+// EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID in eas.json → build → <profile> → env
 const GOOGLE_IDS = {
-  // Web client ID (always required — used as the audience for token validation)
-  web: 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com',
-  // iOS client ID (iOS only — type "iOS" in Cloud Console, bundle ID must match)
-  ios: 'YOUR_IOS_CLIENT_ID.apps.googleusercontent.com',
-  // Android client ID (type "Android" — needs your debug SHA-1)
-  android: 'YOUR_ANDROID_CLIENT_ID.apps.googleusercontent.com',
+  web: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+  ios: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+  android: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
-// For Expo Go: redirect URI is https://auth.expo.io/@<username>/stuntcock
+// For Expo Go: redirect URI is https://auth.expo.io/@mswann/stuntcock
 // For standalone builds: stuntcock://auth
 const redirectUri = makeRedirectUri({ scheme: 'stuntcock', path: 'auth' });
 
-export default function AuthScreen({ onSignIn }) {
+/**
+ * AuthScreen props:
+ *   onSignInGoogle(accessToken: string) — called with Google OAuth access token
+ *   onSignInApple(identityToken: string, nonce: string) — called with Apple identity token + raw nonce
+ */
+export default function AuthScreen({ onSignInGoogle, onSignInApple }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -50,19 +56,9 @@ export default function AuthScreen({ onSignIn }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('https://www.googleapis.com/userinfo/v2/me', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = await res.json();
-      await onSignIn({
-        provider: 'google',
-        id: data.id,
-        name: data.name,
-        email: data.email,
-        picture: data.picture,
-      });
+      await onSignInGoogle(accessToken);
     } catch {
-      setError('Could not fetch Google profile. Try again.');
+      setError('Google sign-in failed. Try again.');
     } finally {
       setLoading(false);
     }
@@ -72,22 +68,25 @@ export default function AuthScreen({ onSignIn }) {
     setLoading(true);
     setError(null);
     try {
+      // Generate a cryptographic nonce — required for Apple + Firebase security
+      const rawNonce = Array.from(
+        await Crypto.getRandomBytesAsync(32),
+        (b) => b.toString(16).padStart(2, '0'),
+      ).join('');
+      const hashedNonce = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        rawNonce,
+      );
+
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [
           AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
           AppleAuthentication.AppleAuthenticationScope.EMAIL,
         ],
+        nonce: hashedNonce,
       });
-      const name = credential.fullName
-        ? [credential.fullName.givenName, credential.fullName.familyName].filter(Boolean).join(' ')
-        : 'Apple User';
-      await onSignIn({
-        provider: 'apple',
-        id: credential.user,
-        name,
-        email: credential.email,
-        picture: null,
-      });
+
+      await onSignInApple(credential.identityToken, rawNonce);
     } catch (e) {
       if (e.code !== 'ERR_REQUEST_CANCELED') {
         setError('Apple sign-in failed. Try again.');
@@ -97,7 +96,7 @@ export default function AuthScreen({ onSignIn }) {
     }
   }
 
-  const googleConfigured = !GOOGLE_IDS.web.startsWith('YOUR_');
+  const googleConfigured = !!(GOOGLE_IDS.web && !GOOGLE_IDS.web.startsWith('YOUR_'));
 
   return (
     <View style={styles.container}>
@@ -130,7 +129,7 @@ export default function AuthScreen({ onSignIn }) {
               style={[styles.googleBtn, !googleConfigured && styles.googleBtnDisabled]}
               onPress={() => {
                 if (!googleConfigured) {
-                  setError('Google client IDs not configured yet — see AuthScreen.jsx');
+                  setError('Google client IDs not configured — set EXPO_PUBLIC_GOOGLE_*_CLIENT_ID in eas.json');
                   return;
                 }
                 googlePrompt();
@@ -178,7 +177,6 @@ const styles = StyleSheet.create({
   googleIcon: { fontSize: 18, fontWeight: '700', color: '#4285F4' },
   googleBtnText: { color: '#1f1f1f', fontWeight: '600', fontSize: 15 },
   footer: {
-    color: '#495057', fontSize: 12, textAlign: 'center',
-    marginTop: 32, lineHeight: 18,
+    color: '#495057', fontSize: 12, textAlign: 'center', marginTop: 32, lineHeight: 18,
   },
 });

@@ -26,5 +26,9 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2",
+    "jest-expo": "^56.0.5"
   }
 }

@@ -1,14 +1,59 @@
-// Change to your machine's LAN IP when running on a real device
-// iOS Simulator: localhost works. Android emulator: use 10.0.2.2
-export const API_BASE = 'http://192.168.1.134:3001';
-export const WS_URL = 'ws://192.168.1.134:3001';
+// api.js — HTTP client for StuntCock backend
+// API_BASE and WS_URL are injected via EAS environment config (EXPO_PUBLIC_* are inlined by Metro at build time)
+export const API_BASE = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:3001';
+export const WS_URL = (() => {
+  const base = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:3001';
+  // Upgrade http → wss, https → wss; if already ws/wss honour it
+  return base
+    .replace(/^https:\/\//, 'wss://')
+    .replace(/^http:\/\//, 'wss://');
+})();
 
-async function req(path, opts = {}) {
+// ─── Token provider — injected by useAuth after Firebase sign-in ──────────────
+// Holds { getIdToken: () => Promise<string>, refreshIdToken: () => Promise<string> }
+let _tokenProvider = null;
+
+/** Called by useAuth once Firebase is ready. */
+export function setTokenProvider(provider) {
+  _tokenProvider = provider;
+}
+
+// ─── Core request helper ──────────────────────────────────────────────────────
+
+/**
+ * @param {string} path
+ * @param {RequestInit & { body?: object }} opts
+ * @param {boolean} [_isRetry] — internal flag; true on the second attempt after a 401
+ */
+async function req(path, opts = {}, _isRetry = false) {
+  const headers = { 'Content-Type': 'application/json', ...opts.headers };
+
+  // Attach Firebase ID token as Bearer on every request
+  if (_tokenProvider) {
+    try {
+      const token = await _tokenProvider.getIdToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    } catch {
+      // If we can't get a token, proceed without — server will reject if auth required
+    }
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...opts.headers },
     ...opts,
+    headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
+
+  // 401 → force-refresh the Firebase ID token and retry once
+  if (res.status === 401 && !_isRetry && _tokenProvider) {
+    try {
+      await _tokenProvider.refreshIdToken();
+    } catch {
+      throw new Error('401 Unauthorized — token refresh failed');
+    }
+    return req(path, opts, true);
+  }
+
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
 }
