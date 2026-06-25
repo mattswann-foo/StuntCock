@@ -50,3 +50,23 @@ output "secret_google_play_service_account_json_id" {
   description = "Secret Manager secret ID for the Google Play service account JSON."
   value       = google_secret_manager_secret.google_play_service_account_json.secret_id
 }
+
+output "cloud_build_service_account_email" {
+  description = "Email of the Cloud Build service account. Use this to grant additional IAM roles as needed."
+  value       = google_service_account.cloud_build_sa.email
+}
+
+output "monitoring_dashboard_name" {
+  description = "The resource name of the Cloud Monitoring dashboard."
+  value       = google_monitoring_dashboard.cloud_run_dashboard.id
+}
+
+output "alert_policy_p99_latency_name" {
+  description = "The resource name of the p99 latency alert policy."
+  value       = google_monitoring_alert_policy.p99_latency.name
+}
+
+output "alert_policy_error_rate_name" {
+  description = "The resource name of the error rate alert policy."
+  value       = google_monitoring_alert_policy.error_rate.name
+}

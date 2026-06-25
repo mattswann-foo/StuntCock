@@ -72,3 +72,21 @@ variable "billing_account_id" {
   type        = string
   default     = ""
 }
+
+variable "firebase_project_id" {
+  description = "The Firebase project ID (usually the same as project_id). Used when Firebase Hosting or other Firebase services reference a separate project."
+  type        = string
+  default     = ""
+}
+
+variable "alert_latency_p99_ms" {
+  description = "p99 request latency threshold in milliseconds for the Cloud Monitoring alert policy. Alert fires when p99 exceeds this value for 5 consecutive minutes."
+  type        = number
+  default     = 2000
+}
+
+variable "alert_error_rate_rps" {
+  description = "5xx error rate threshold in requests-per-second for the Cloud Monitoring alert policy. Alert fires when the rate exceeds this value for 5 consecutive minutes."
+  type        = number
+  default     = 1
+}

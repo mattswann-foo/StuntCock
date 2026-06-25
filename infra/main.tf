@@ -3,15 +3,18 @@
 #
 # Resources provisioned:
 #   - Artifact Registry (Docker repository)
-#   - Cloud Run service (scale-to-zero)
+#   - Cloud Run service (scale-to-zero, HTTPS-only)
 #   - Firestore database (Native mode)
 #   - Cloud Pub/Sub dead-letter topic for Cloud Tasks
 #   - Cloud Tasks queue (with dead-letter config)
 #   - Secret Manager secrets (anthropic_api_key, apple_iap_shared_secret,
 #       google_play_service_account_json)
-#   - IAM service accounts (Cloud Run, Cloud Tasks enqueuer)
-#   - IAM bindings (Firestore user, Secret Accessor, Cloud Run invoker)
-#   - Cloud Monitoring budget alert
+#   - IAM service accounts (Cloud Run, Cloud Build, Cloud Tasks enqueuer)
+#   - IAM bindings (Firestore user, Secret Accessor, Cloud Run invoker,
+#       Cloud Build roles)
+#   - Cloud Billing budget alert ($50/month)
+#   - Cloud Monitoring dashboard (request count, p99 latency, error rate)
+#   - Cloud Monitoring alert policies (p99 latency, error rate)
 
 terraform {
   required_version = ">= 1.5.0"
@@ -48,8 +51,9 @@ provider "google-beta" {
 
 locals {
   common_labels = {
-    app = "stuntcock"
-    env = var.environment
+    project = "stuntcock"
+    app     = "stuntcock"
+    env     = var.environment
   }
 }
 
@@ -102,6 +106,26 @@ resource "google_project_service" "monitoring_api" {
   disable_on_destroy = false
 }
 
+resource "google_project_service" "cloudbuild_api" {
+  service            = "cloudbuild.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "logging_api" {
+  service            = "logging.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "cloudtrace_api" {
+  service            = "cloudtrace.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "errorreporting_api" {
+  service            = "clouderrorreporting.googleapis.com"
+  disable_on_destroy = false
+}
+
 # ---------------------------------------------------------------------------
 # Artifact Registry — Docker repository
 # ---------------------------------------------------------------------------
@@ -141,8 +165,17 @@ resource "google_service_account" "cloud_tasks_enqueuer_sa" {
   depends_on = [google_project_service.iam_api]
 }
 
+# Service account used by Cloud Build to build and push container images
+resource "google_service_account" "cloud_build_sa" {
+  account_id   = "stuntcock-cloud-build"
+  display_name = "StuntCock Cloud Build Service Account"
+  description  = "Identity used by Cloud Build to build container images and push to Artifact Registry."
+
+  depends_on = [google_project_service.iam_api]
+}
+
 # ---------------------------------------------------------------------------
-# Cloud Run service (scale-to-zero enforced)
+# Cloud Run service (scale-to-zero enforced, HTTPS-only by default on Cloud Run v2)
 # ---------------------------------------------------------------------------
 
 resource "google_cloud_run_v2_service" "api" {
@@ -285,6 +318,40 @@ resource "google_project_iam_member" "cloud_tasks_enqueuer_binding" {
 }
 
 # ---------------------------------------------------------------------------
+# IAM — Cloud Build SA bindings
+# ---------------------------------------------------------------------------
+
+# Allow Cloud Build SA to write logs
+resource "google_project_iam_member" "cloud_build_logs_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.cloud_build_sa.email}"
+
+  depends_on = [google_project_service.cloudbuild_api]
+}
+
+# Allow Cloud Build SA to write to Artifact Registry
+resource "google_project_iam_member" "cloud_build_artifact_writer" {
+  project = var.project_id
+  role    = "roles/artifactregistry.writer"
+  member  = "serviceAccount:${google_service_account.cloud_build_sa.email}"
+}
+
+# Allow Cloud Build SA to submit builds
+resource "google_project_iam_member" "cloud_build_builder" {
+  project = var.project_id
+  role    = "roles/cloudbuild.builds.builder"
+  member  = "serviceAccount:${google_service_account.cloud_build_sa.email}"
+}
+
+# Allow Cloud Build SA to deploy to Cloud Run (for CI/CD pipelines)
+resource "google_project_iam_member" "cloud_build_run_developer" {
+  project = var.project_id
+  role    = "roles/run.developer"
+  member  = "serviceAccount:${google_service_account.cloud_build_sa.email}"
+}
+
+# ---------------------------------------------------------------------------
 # Secret Manager secrets (empty versions — populated out-of-band)
 # ---------------------------------------------------------------------------
 
@@ -379,4 +446,192 @@ resource "google_billing_budget" "monthly_budget" {
   }
 
   depends_on = [google_project_service.billingbudgets_api]
+}
+
+# ---------------------------------------------------------------------------
+# Cloud Monitoring — Dashboard (Cloud Run request count, p99 latency, error rate)
+# ---------------------------------------------------------------------------
+
+resource "google_monitoring_dashboard" "cloud_run_dashboard" {
+  dashboard_json = jsonencode({
+    displayName = "StuntCock Cloud Run — ${var.environment}"
+    mosaicLayout = {
+      columns = 12
+      tiles = [
+        {
+          width  = 4
+          height = 4
+          widget = {
+            title = "Cloud Run — Request Count"
+            xyChart = {
+              dataSets = [{
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${var.cloud_run_service_name}\" AND metric.type=\"run.googleapis.com/request_count\""
+                    aggregation = {
+                      alignmentPeriod    = "60s"
+                      perSeriesAligner   = "ALIGN_RATE"
+                      crossSeriesReducer = "REDUCE_SUM"
+                      groupByFields      = ["metric.labels.response_code_class"]
+                    }
+                  }
+                }
+                plotType = "LINE"
+              }]
+              timeshiftDuration = "0s"
+              yAxis = {
+                label = "Requests / sec"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        {
+          xPos   = 4
+          width  = 4
+          height = 4
+          widget = {
+            title = "Cloud Run — p99 Request Latency"
+            xyChart = {
+              dataSets = [{
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${var.cloud_run_service_name}\" AND metric.type=\"run.googleapis.com/request_latencies\""
+                    aggregation = {
+                      alignmentPeriod    = "60s"
+                      perSeriesAligner   = "ALIGN_DELTA"
+                      crossSeriesReducer = "REDUCE_PERCENTILE_99"
+                      groupByFields      = []
+                    }
+                  }
+                }
+                plotType = "LINE"
+              }]
+              timeshiftDuration = "0s"
+              yAxis = {
+                label = "Latency (ms)"
+                scale = "LINEAR"
+              }
+            }
+          }
+        },
+        {
+          xPos   = 8
+          width  = 4
+          height = 4
+          widget = {
+            title = "Cloud Run — Error Rate (5xx)"
+            xyChart = {
+              dataSets = [{
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${var.cloud_run_service_name}\" AND metric.type=\"run.googleapis.com/request_count\" AND metric.labels.response_code_class=\"5xx\""
+                    aggregation = {
+                      alignmentPeriod    = "60s"
+                      perSeriesAligner   = "ALIGN_RATE"
+                      crossSeriesReducer = "REDUCE_SUM"
+                      groupByFields      = []
+                    }
+                  }
+                }
+                plotType = "LINE"
+              }]
+              timeshiftDuration = "0s"
+              yAxis = {
+                label = "5xx Errors / sec"
+                scale = "LINEAR"
+              }
+            }
+          }
+        }
+      ]
+    }
+    labels = local.common_labels
+  })
+
+  depends_on = [google_project_service.monitoring_api]
+}
+
+# ---------------------------------------------------------------------------
+# Cloud Monitoring — Alert policies (p99 latency, error rate)
+# ---------------------------------------------------------------------------
+
+# Alert policy: p99 request latency exceeds threshold
+resource "google_monitoring_alert_policy" "p99_latency" {
+  display_name = "StuntCock — Cloud Run p99 Latency High (${var.environment})"
+  combiner     = "OR"
+  enabled      = true
+
+  conditions {
+    display_name = "p99 request latency > ${var.alert_latency_p99_ms}ms for 5 minutes"
+
+    condition_threshold {
+      filter = "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${var.cloud_run_service_name}\" AND metric.type=\"run.googleapis.com/request_latencies\""
+
+      aggregations {
+        alignment_period     = "60s"
+        per_series_aligner   = "ALIGN_DELTA"
+        cross_series_reducer = "REDUCE_PERCENTILE_99"
+        group_by_fields      = []
+      }
+
+      comparison      = "COMPARISON_GT"
+      threshold_value = var.alert_latency_p99_ms
+      duration        = "300s"
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  notification_channels = var.notification_channels
+
+  user_labels = local.common_labels
+
+  alert_strategy {
+    auto_close = "604800s" # 7 days
+  }
+
+  depends_on = [google_project_service.monitoring_api]
+}
+
+# Alert policy: 5xx error rate exceeds threshold
+resource "google_monitoring_alert_policy" "error_rate" {
+  display_name = "StuntCock — Cloud Run Error Rate High (${var.environment})"
+  combiner     = "OR"
+  enabled      = true
+
+  conditions {
+    display_name = "5xx error rate > ${var.alert_error_rate_rps} req/s for 5 minutes"
+
+    condition_threshold {
+      filter = "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${var.cloud_run_service_name}\" AND metric.type=\"run.googleapis.com/request_count\" AND metric.labels.response_code_class=\"5xx\""
+
+      aggregations {
+        alignment_period     = "60s"
+        per_series_aligner   = "ALIGN_RATE"
+        cross_series_reducer = "REDUCE_SUM"
+        group_by_fields      = []
+      }
+
+      comparison      = "COMPARISON_GT"
+      threshold_value = var.alert_error_rate_rps
+      duration        = "300s"
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  notification_channels = var.notification_channels
+
+  user_labels = local.common_labels
+
+  alert_strategy {
+    auto_close = "604800s" # 7 days
+  }
+
+  depends_on = [google_project_service.monitoring_api]
 }

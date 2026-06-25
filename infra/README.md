@@ -7,7 +7,7 @@ This directory contains the Terraform workspace that provisions all GCP resource
 | Resource | Type | Notes |
 |---|---|---|
 | Artifact Registry repository | `google_artifact_registry_repository` | Docker images for the platform |
-| Cloud Run service | `google_cloud_run_v2_service` | `min_scale = 0` (scale-to-zero) |
+| Cloud Run service | `google_cloud_run_v2_service` | `min_scale = 0` (scale-to-zero), HTTPS-only |
 | Firestore database | `google_firestore_database` | Native mode, `(default)` database |
 | Cloud Pub/Sub dead-letter topic | `google_pubsub_topic` | Receives undeliverable Cloud Tasks |
 | Cloud Tasks queue | `google_cloud_tasks_queue` | Dead-letter → Pub/Sub topic |
@@ -15,13 +15,18 @@ This directory contains the Terraform workspace that provisions all GCP resource
 | Secret Manager secret: `apple_iap_shared_secret` | `google_secret_manager_secret` | Populated out-of-band |
 | Secret Manager secret: `google_play_service_account_json` | `google_secret_manager_secret` | Populated out-of-band |
 | IAM service account: Cloud Run | `google_service_account` | Runtime identity for the API |
+| IAM service account: Cloud Build | `google_service_account` | Builds images; deploys to Cloud Run |
 | IAM service account: Cloud Tasks enqueuer | `google_service_account` | Enqueues tasks; invokes Cloud Run |
 | IAM binding: Firestore user | `google_project_iam_member` | `roles/datastore.user` → Cloud Run SA |
 | IAM bindings: Secret Accessor (×3) | `google_secret_manager_secret_iam_member` | Cloud Run SA on each named secret |
 | IAM binding: Cloud Tasks enqueuer role | `google_project_iam_member` | `roles/cloudtasks.enqueuer` |
 | IAM binding: Cloud Run invoker | `google_cloud_run_v2_service_iam_member` | Tasks enqueuer SA → Cloud Run service |
-| Cloud Billing budget alert | `google_billing_budget` | Conditional on `billing_account_id` |
-| GCP API enablements (×9) | `google_project_service` | Cloud Run, Firestore, Tasks, etc. |
+| IAM bindings: Cloud Build roles (×4) | `google_project_iam_member` | `logs.logWriter`, `artifactregistry.writer`, `cloudbuild.builds.builder`, `run.developer` |
+| Cloud Billing budget alert | `google_billing_budget` | $50/month default; conditional on `billing_account_id` |
+| Cloud Monitoring dashboard | `google_monitoring_dashboard` | Cloud Run request count, p99 latency, error rate |
+| Alert policy: p99 latency | `google_monitoring_alert_policy` | Fires when p99 > threshold for 5 min |
+| Alert policy: error rate | `google_monitoring_alert_policy` | Fires when 5xx rate > threshold for 5 min |
+| GCP API enablements (×13) | `google_project_service` | Cloud Run, Firestore, Tasks, Cloud Build, Logging, Trace, Error Reporting, etc. |
 
 ## Prerequisites
 
@@ -48,8 +53,9 @@ This directory contains the Terraform workspace that provisions all GCP resource
 
 | Variable | Default | Description |
 |---|---|---|
-| `project_id` | `"stuntcock"` | GCP project to deploy into |
-| `region` | `"us-central1"` | Primary region for regional resources |
+| `project_id` | `"stuntcock"` | **Required.** GCP project to deploy into |
+| `region` | `"us-central1"` | **Required.** Primary region for regional resources |
+| `firebase_project_id` | `""` | **Required for Firebase features.** Firebase project ID (usually the same as `project_id`). Used when Firebase Hosting or other Firebase services reference a separate project. |
 | `environment` | `"prod"` | Environment label (prod / staging / dev) |
 | `cloud_run_image` | Google placeholder | Container image URI for Cloud Run |
 | `cloud_run_service_name` | `"stuntcock-api"` | Cloud Run service name |
@@ -59,7 +65,21 @@ This directory contains the Terraform workspace that provisions all GCP resource
 | `budget_monthly_usd` | `50` | Monthly budget threshold in USD |
 | `budget_alert_thresholds` | `[0.5, 0.9, 1.0]` | Fractional thresholds for alerts |
 | `notification_channels` | `[]` | Cloud Monitoring channel IDs for alerts |
-| `billing_account_id` | `""` | Billing account ID (required for budget alerts) |
+| `billing_account_id` | `""` | Billing account ID (required for budget alerts). Format: `XXXXXX-XXXXXX-XXXXXX` |
+| `alert_latency_p99_ms` | `2000` | p99 latency alert threshold in milliseconds |
+| `alert_error_rate_rps` | `1` | 5xx error rate alert threshold in requests/second |
+
+### Required `terraform.tfvars` variables
+
+The following variables **must** be set (no safe default exists) — create `infra/terraform.tfvars` (gitignored) before running Terraform:
+
+```hcl
+# infra/terraform.tfvars  — DO NOT commit; file is gitignored
+project_id          = "your-gcp-project-id"    # required
+region              = "us-central1"             # required
+firebase_project_id = "your-gcp-project-id"    # required if using Firebase features
+billing_account_id  = "XXXXXX-XXXXXX-XXXXXX"   # required for budget alerts
+```
 
 ## Usage
 
@@ -144,12 +164,16 @@ terraform apply -var="cloud_run_image=$IMAGE"
 | `artifact_registry_repo` | Docker repository URI (tag-and-push prefix) |
 | `cloud_tasks_queue_name` | Fully qualified Cloud Tasks queue name |
 | `cloud_run_service_account_email` | Cloud Run runtime SA email |
+| `cloud_build_service_account_email` | Cloud Build SA email |
 | `cloud_tasks_enqueuer_service_account_email` | Tasks enqueuer SA email |
 | `firestore_database_name` | Firestore database name |
 | `dead_letter_topic_name` | Pub/Sub dead-letter topic name |
 | `secret_anthropic_api_key_id` | Secret Manager ID for Anthropic key |
 | `secret_apple_iap_shared_secret_id` | Secret Manager ID for Apple IAP secret |
 | `secret_google_play_service_account_json_id` | Secret Manager ID for Google Play SA JSON |
+| `monitoring_dashboard_name` | Cloud Monitoring dashboard resource name |
+| `alert_policy_p99_latency_name` | p99 latency alert policy resource name |
+| `alert_policy_error_rate_name` | Error rate alert policy resource name |
 
 ## State management
 
