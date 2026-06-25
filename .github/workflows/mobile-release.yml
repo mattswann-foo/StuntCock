@@ -1,0 +1,124 @@
+# mobile-release.yml — Submit built binaries to App Store and Play Store on version tags
+name: Mobile — Release (App Store & Play Store)
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  security-audit:
+    name: Security Audit (npm audit + Semgrep)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        run: npm ci
+
+      - name: npm audit (high/critical gate)
+        run: npm audit --audit-level=high
+
+      # ── Semgrep static analysis ───────────────────────────────────────────
+      - name: Run Semgrep
+        uses: semgrep/semgrep-action@v1
+        id: semgrep
+        with:
+          config: >-
+            p/react-native
+            p/secrets
+            p/owasp-top-ten
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      - name: Upload Semgrep SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-release-results
+          path: semgrep.sarif
+          if-no-files-found: ignore
+
+  eas-submit:
+    name: EAS Submit — App Store & Play Store
+    runs-on: ubuntu-latest
+    needs: security-audit
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        run: npm ci
+
+      # ── Set up EAS CLI ────────────────────────────────────────────────────
+      - name: Set up EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # ── Submit latest production build to both stores ─────────────────────
+      # `eas submit` picks up the most recent successful production build from
+      # the EAS build queue automatically when --latest is passed.
+      - name: EAS Submit — iOS (App Store)
+        run: |
+          eas submit \
+            --platform ios \
+            --latest \
+            --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.EXPO_APPLE_APP_SPECIFIC_PASSWORD }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_KEY_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+          ASC_API_KEY_CONTENT: ${{ secrets.ASC_API_KEY_CONTENT }}
+
+      - name: EAS Submit — Android (Play Store)
+        run: |
+          eas submit \
+            --platform android \
+            --latest \
+            --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_GOOGLE_SERVICE_ACCOUNT_KEY_JSON: ${{ secrets.EXPO_GOOGLE_SERVICE_ACCOUNT_KEY_JSON }}
+
+      - name: Write release summary
+        run: |
+          echo "## 🚀 Mobile Release Submitted" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Tag** | \`${{ github.ref_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **iOS** | Submitted to App Store Connect |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Android** | Submitted to Play Store |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **EAS Dashboard** | https://expo.dev/accounts/mswann/projects/stuntcock/submissions |" >> "$GITHUB_STEP_SUMMARY"

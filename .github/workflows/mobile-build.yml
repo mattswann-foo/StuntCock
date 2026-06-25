@@ -1,0 +1,112 @@
+# mobile-build.yml — Security audit + EAS build for iOS and Android on every push to main
+name: Mobile — Build (iOS & Android)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  security-audit:
+    name: Security Audit (npm audit + Semgrep)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      # ── npm audit gate ────────────────────────────────────────────────────
+      - name: Install mobile dependencies
+        run: npm ci
+
+      - name: npm audit (high/critical gate)
+        # Exits non-zero when high or critical vulnerabilities are found.
+        # The eas-build job will NOT run if this step fails.
+        run: npm audit --audit-level=high
+
+      # ── Semgrep static analysis ───────────────────────────────────────────
+      - name: Run Semgrep
+        uses: semgrep/semgrep-action@v1
+        id: semgrep
+        with:
+          config: >-
+            p/react-native
+            p/secrets
+            p/owasp-top-ten
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      - name: Upload Semgrep SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-mobile-results
+          path: semgrep.sarif
+          if-no-files-found: ignore
+
+  eas-build:
+    name: EAS Build — iOS & Android (production)
+    runs-on: ubuntu-latest
+    needs: security-audit        # Only runs when audit passes
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        run: npm ci
+
+      # ── Set up EAS CLI ────────────────────────────────────────────────────
+      - name: Set up EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # ── Trigger EAS production builds for both platforms ─────────────────
+      - name: EAS Build — production (iOS + Android)
+        run: |
+          eas build \
+            --platform all \
+            --profile production \
+            --non-interactive \
+            --no-wait
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Write build summary
+        run: |
+          echo "## 📱 EAS Build Triggered" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Profile** | \`production\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Platforms** | iOS + Android |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **EAS Dashboard** | https://expo.dev/accounts/mswann/projects/stuntcock/builds |" >> "$GITHUB_STEP_SUMMARY"
