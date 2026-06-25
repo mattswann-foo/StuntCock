@@ -1,0 +1,19 @@
+# Terraform state — never commit; use remote backend (GCS) in production
+*.tfstate
+*.tfstate.backup
+*.tfstate.*.backup
+
+# Local variable overrides (may contain secrets)
+terraform.tfvars
+*.auto.tfvars
+
+# Terraform working directory
+.terraform/
+.terraform.lock.hcl
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Plan output files (may contain sensitive values)
+*.tfplan
