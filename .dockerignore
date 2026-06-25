@@ -1,0 +1,42 @@
+# StuntCock — Docker build context exclusions
+# Keeps the image small and prevents secrets from leaking into the build context.
+
+# Node dependencies (reinstalled via npm ci inside the Dockerfile)
+node_modules/
+frontend/node_modules/
+
+# Frontend source (served separately; not needed in Cloud Run API image)
+frontend/
+
+# Local development and secrets
+.env
+*.env
+.env.*
+!.env.example
+
+# SQLite database (Firestore replaces this)
+data/
+
+# Git history
+.git/
+.gitignore
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Test output
+coverage/
+*.test.js.snap
+
+# Claude AI local settings
+.claude/
+
+# Logs
+*.log
+npm-debug.log*

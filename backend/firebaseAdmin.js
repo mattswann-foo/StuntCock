@@ -4,11 +4,8 @@
 const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
-  const credential = process.env.GOOGLE_APPLICATION_CREDENTIALS
-    ? admin.credential.applicationDefault()
-    : admin.credential.applicationDefault();
-
-  admin.initializeApp({ credential });
+  // Uses GOOGLE_APPLICATION_CREDENTIALS env var (file path) or ADC (Workload Identity on Cloud Run)
+  admin.initializeApp({ credential: admin.credential.applicationDefault() });
 }
 
 module.exports = admin;
