@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
+    "@react-native-firebase/app": "^21.0.0",
+    "@react-native-firebase/crashlytics": "^21.0.0",
     "@react-native/js-polyfills": "^0.86.0",
     "@react-navigation/bottom-tabs": "^6.6.1",
     "@react-navigation/native": "^6.1.18",
