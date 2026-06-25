@@ -10,10 +10,14 @@
     "seed": "node scripts/seed.js",
     "install:all": "npm install && cd frontend && npm install",
     "build": "cd frontend && npm run build",
-    "deploy": "npm run build && firebase deploy --only hosting"
+    "deploy": "npm run build && firebase deploy --only hosting",
+    "test": "node --test backend/middleware/observability.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
+    "@google-cloud/error-reporting": "^3.0.6",
+    "@google-cloud/logging": "^11.2.3",
+    "@google-cloud/trace-agent": "^8.0.0",
     "@whiskeysockets/baileys": "^7.0.0-rc13",
     "better-sqlite3": "^12.11.1",
     "concurrently": "^8.2.2",

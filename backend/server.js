@@ -15,6 +15,7 @@ const { fetchGifPath } = require('./gifClient');
 const fs = require('fs');
 const signalClient = require('./signalClient');
 const whatsappClient = require('./whatsappClient');
+const { requestLogger, errorReporter, registerProcessErrorHandlers, withTraceSpan } = require('./middleware/observability');
 
 const app = express();
 const server = http.createServer(app);
@@ -24,6 +25,10 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 
 app.use(express.json());
 app.use(require('cors')({ origin: /^http:\/\/localhost:\d+$/ }));
+
+// --- Observability: structured logging + process-level error reporting ---
+app.use(requestLogger);
+registerProcessErrorHandlers();
 
 // --- WebSocket broadcast ---
 
@@ -229,9 +234,14 @@ app.get('/api/rules', (req, res) => {
   res.json(db.getRules());
 });
 
-app.post('/api/rules', (req, res) => {
-  const rule = db.createRule(req.body);
-  res.json(rule);
+app.post('/api/rules', async (req, res) => {
+  const traceId = req.traceId || 'unknown';
+  try {
+    const rule = await withTraceSpan('firestore.createRule', traceId, () => db.createRule(req.body));
+    res.json(rule);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.put('/api/rules/:id', (req, res) => {
@@ -384,6 +394,9 @@ app.post('/api/personas/generate', async (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, version: '1.0.0', product: 'StuntCock' });
 });
+
+// --- Observability: Cloud Error Reporting (must come after all routes) ---
+app.use(errorReporter);
 
 server.listen(PORT, () => {
   console.log(`\n🐓 StuntCock backend running on http://localhost:${PORT}`);
