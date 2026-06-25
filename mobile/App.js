@@ -21,7 +21,7 @@ function TabIcon({ icon, focused }) {
 }
 
 export default function App() {
-  const { user, loading, signIn, signOut } = useAuth();
+  const { user, loading, signInWithGoogle, signInWithApple, signOut } = useAuth();
 
   if (loading) {
     return (
@@ -36,7 +36,10 @@ export default function App() {
     return (
       <>
         <StatusBar style="light" />
-        <AuthScreen onSignIn={signIn} />
+        <AuthScreen
+          onSignInGoogle={signInWithGoogle}
+          onSignInApple={signInWithApple}
+        />
       </>
     );
   }
